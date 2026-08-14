@@ -47,6 +47,24 @@ pnpm build
 - **生产模式**升级:自动执行 `npm install -g @deepseek-ai/dsh@latest`
 - **升级完成后**:询问是否重启应用(杀掉 dsh 子进程 → 重新拉起应用)
 
+## 发布(GitHub Actions)
+
+仓库已配置 GitHub Actions 工作流(`.github/workflows/`):
+
+- **release.yml**:推送到 `v*` 标签或手动触发时,在 macOS(arm64/x64)、Ubuntu、Windows 上构建安装包,并上传到 GitHub Releases(草稿)。
+- **build.yml**:每次 push/PR 在三平台做编译验证。
+
+发布新版本:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+然后到 GitHub 仓库的 **Actions** 页观察构建,完成后在 **Releases** 页把草稿发布,即可获得各平台安装包。也可以在 Actions 页手动运行 **release** 工作流(不依赖标签,版本号取 `package.json`)。
+
+> 注:当前发布产物只是"壳"本身;运行时通过 `npx` 拉取 `@deepseek-ai/dsh`,目标机器需要 Node.js + 网络。正式分发可把 dsh 打进 `Resources/app` 实现免依赖;macOS 未签名产物会有 Gatekeeper 提示,需配置签名/公证。
+
 ## 与 Electron 版的区别
 
 | | Electron 版 | Tauri 版 |
