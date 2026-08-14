@@ -162,12 +162,30 @@ pub fn npm_install_args(prefix: &Path) -> Vec<String> {
     ]
 }
 
+/// PATH for npm lifecycle scripts: the node binary's directory prepended to
+/// the ambient PATH, so dependency install scripts can find `node`.
+pub fn script_path_with_node(node: &Path) -> String {
+    let sep = if cfg!(windows) { ";" } else { ":" };
+    let bin_dir = node
+        .parent()
+        .unwrap_or(Path::new(""))
+        .to_string_lossy()
+        .into_owned();
+    let current = std::env::var("PATH").unwrap_or_default();
+    if bin_dir.is_empty() {
+        current
+    } else {
+        format!("{}{}{}", bin_dir, sep, current)
+    }
+}
+
 /// Run `<node> <npm-cli.js> install ...`; Ok(output) on success, Err(tail) on failure.
 #[allow(dead_code)]
 pub fn install_dsh(node: &Path, npm_cli: &Path, prefix: &Path) -> Result<String, String> {
     let output = Command::new(node)
         .arg(npm_cli)
         .args(npm_install_args(prefix))
+        .env("PATH", script_path_with_node(node))
         .output()
         .map_err(|e| format!("failed to run npm: {}", e))?;
     if output.status.success() {
@@ -461,5 +479,23 @@ mod tests {
             Path::new("/tmp"),
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn script_path_prepends_node_bin_dir() {
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        let node = PathBuf::from("/x/toolchain/node-24.19.0/bin/node");
+        let path = script_path_with_node(&node);
+        let prefix = format!("/x/toolchain/node-24.19.0/bin{}", sep);
+        assert!(path.starts_with(&prefix));
+    }
+
+    #[test]
+    fn script_path_node_without_parent_is_ambient() {
+        let node = PathBuf::from("node");
+        assert_eq!(
+            script_path_with_node(&node),
+            std::env::var("PATH").unwrap_or_default()
+        );
     }
 }
