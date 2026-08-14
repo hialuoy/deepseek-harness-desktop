@@ -21,7 +21,21 @@ The official desktop app for **DeepSeek Harness** — a lightweight native shell
 
 1. 下载 `DeepSeek Harness_<version>_<arch>.dmg`(Apple Silicon 选 `aarch64`,Intel 选 `x64`)
 2. 打开 DMG,把 **DeepSeek Harness.app** 拖入 Applications 文件夹
-3. 首次打开时,若出现「无法验证开发者」提示,右键应用 → **打开**(未签名/未公证的测试版本;正式发布版会消除此提示)
+3. 首次打开时,若出现「Apple 无法验证 DeepSeek Harness…」提示,用下面任一方式绕过(当前版本尚未通过 Apple 签名/公证):
+
+   **方式一(推荐)**:在 Applications 中**右键** DeepSeek Harness.app → **打开** → 再次点击 **打开**。
+   **方式二**:**系统设置 → 隐私与安全性 → 安全性**,点击「仍要打开」。
+   **方式三**:终端执行 `xattr -dr com.apple.quarantine "/Applications/DeepSeek Harness.app"`(清除隔离标记)。
+
+### macOS
+
+1. Download `DeepSeek Harness_<version>_<arch>.dmg` (`aarch64` for Apple Silicon, `x64` for Intel)
+2. Open the DMG and drag **DeepSeek Harness.app** into Applications
+3. On first launch, if macOS shows "Apple cannot verify DeepSeek Harness…", use one of these workarounds (this build is not yet signed/notarized by Apple):
+
+   **Option 1 (recommended)**: **right-click** DeepSeek Harness.app in Applications → **Open** → click **Open** again.
+   **Option 2**: **System Settings → Privacy & Security → Security**, then click **Open Anyway**.
+   **Option 3**: run `xattr -dr com.apple.quarantine "/Applications/DeepSeek Harness.app"` in Terminal (removes the quarantine flag).
 
 ### Windows
 
@@ -73,7 +87,13 @@ After the first install, subsequent launches are instant and work offline.
 
 ### 应用打不开(macOS)?
 
-- 未签名版本会被 macOS 拦截:右键应用 → **打开**。或到 **系统设置 → 隐私与安全性** 中允许。
+- 当前版本未签名/未公证,会被 macOS Gatekeeper 拦截。三种绕过方式见上方 **macOS 安装** 第 3 步。
+- 若「打开」后仍提示已损坏,可在终端执行 `xattr -dr com.apple.quarantine "/Applications/DeepSeek Harness.app"` 后重试。
+
+### App won't open (macOS)?
+
+- This build is not signed/notarized, so Gatekeeper may block it. Use one of the three workarounds in the **macOS installation** section above.
+- If it still says the app is damaged after opening, run `xattr -dr com.apple.quarantine "/Applications/DeepSeek Harness.app"` in Terminal and try again.
 
 ### 数据存在哪里?
 
