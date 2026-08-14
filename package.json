@@ -4,9 +4,9 @@
   "private": true,
   "description": "DeepSeek Harness Desktop — Tauri shell (Route A)",
   "scripts": {
-    "dev": "cargo tauri dev",
-    "build": "cargo tauri build",
-    "tauri": "cargo tauri"
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "tauri": "tauri"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"
