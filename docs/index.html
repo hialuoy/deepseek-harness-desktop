@@ -7,129 +7,218 @@
   <meta name="description" content="DeepSeek Harness 官方桌面应用:零依赖安装,轻量高效,自动更新。Download the official DeepSeek Harness desktop app." />
   <style>
     :root {
-      --bg: #0d1117;
-      --bg2: #161b22;
-      --fg: #e6edf3;
-      --muted: #8b949e;
-      --accent: #4c8dff;
-      --accent2: #7ee787;
-      --border: #30363d;
+      --white: #ffffff;
+      --bg: #f8f9fb;
+      --fg: #1a1d21;
+      --muted: #6b7280;
+      --accent: #2563eb;
+      --accent-soft: #eff4ff;
+      --border: #e5e7eb;
+      --shadow: 0 1px 3px rgba(16,24,40,.06), 0 4px 16px rgba(16,24,40,.08);
+      --shadow-lg: 0 8px 32px rgba(16,24,40,.12);
+      --radius: 14px;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
       background: var(--bg);
       color: var(--fg);
-      line-height: 1.6;
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
     }
-    .container { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+    .container { max-width: 1000px; margin: 0 auto; padding: 0 28px; }
 
-    /* Hero */
-    .hero {
-      text-align: center;
-      padding: 80px 0 60px;
-      background: radial-gradient(ellipse at top, #1f2d4a 0%, var(--bg) 70%);
+    /* ── Nav ── */
+    nav {
+      position: sticky; top: 0; z-index: 10;
+      background: rgba(255,255,255,.85); backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
     }
-    .hero .logo {
-      font-size: 56px; font-weight: 800; letter-spacing: -1px;
-      background: linear-gradient(135deg, var(--accent), var(--accent2));
+    nav .container { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; }
+    .brand .dot { width: 10px; height: 10px; border-radius: 3px; background: linear-gradient(135deg,#2563eb,#4f9cf9); }
+    nav a { color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 500; margin-left: 28px; transition: color .15s; }
+    nav a:hover { color: var(--accent); }
+    .nav-cta {
+      background: var(--accent); color: #fff !important; padding: 8px 18px; border-radius: 8px;
+    }
+    .nav-cta:hover { background: #1d4ed8; }
+
+    /* ── Hero ── */
+    .hero { padding: 90px 0 70px; text-align: center; background: var(--white); border-bottom: 1px solid var(--border); }
+    .hero .badge {
+      display: inline-block; padding: 6px 16px; border-radius: 999px;
+      background: var(--accent-soft); color: var(--accent);
+      font-size: 13px; font-weight: 600; margin-bottom: 22px;
+    }
+    .hero h1 { font-size: 52px; font-weight: 800; letter-spacing: -1.5px; line-height: 1.15; }
+    .hero h1 .grad {
+      background: linear-gradient(135deg,#2563eb 0%,#06b6d4 100%);
       -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
     }
-    .hero .sub { font-size: 18px; color: var(--muted); margin-top: 12px; }
-    .hero .badge {
-      display: inline-block; margin-top: 16px; padding: 4px 14px;
-      border: 1px solid var(--border); border-radius: 999px;
-      font-size: 13px; color: var(--muted);
-    }
-    .cta {
-      margin-top: 32px; display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;
-    }
+    .hero .sub { font-size: 18px; color: var(--muted); margin-top: 18px; max-width: 620px; margin-left: auto; margin-right: auto; }
+    .hero .cta { margin-top: 36px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
     .btn {
-      display: inline-block; padding: 14px 32px; border-radius: 10px;
-      font-size: 16px; font-weight: 600; text-decoration: none; transition: transform .15s;
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 14px 30px; border-radius: 12px;
+      font-size: 16px; font-weight: 600; text-decoration: none;
+      transition: all .15s; border: 1px solid transparent;
     }
-    .btn-primary { background: var(--accent); color: #fff; }
-    .btn-ghost { border: 1px solid var(--border); color: var(--fg); }
-    .btn:hover { transform: translateY(-2px); }
+    .btn-primary { background: var(--accent); color: #fff; box-shadow: 0 4px 14px rgba(37,99,235,.3); }
+    .btn-primary:hover { background: #1d4ed8; transform: translateY(-1px); }
+    .btn-ghost { background: var(--white); color: var(--fg); border-color: var(--border); }
+    .btn-ghost:hover { border-color: #cbd5e1; background: var(--bg); }
+    .hero .platforms { margin-top: 30px; font-size: 13px; color: var(--muted); }
 
-    /* Sections */
-    section { padding: 48px 0; border-top: 1px solid var(--border); }
-    h2 { font-size: 28px; margin-bottom: 8px; }
-    .section-sub { color: var(--muted); margin-bottom: 32px; }
-    .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+    /* ── Sections ── */
+    section { padding: 70px 0; }
+    section.alt { background: var(--white); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+    .sec-head { text-align: center; margin-bottom: 44px; }
+    .sec-head .eyebrow { color: var(--accent); font-size: 13px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+    .sec-head h2 { font-size: 32px; font-weight: 800; letter-spacing: -.5px; margin-top: 8px; }
+    .sec-head p { color: var(--muted); margin-top: 10px; }
+
+    /* Features */
+    .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 20px; }
     .feature {
-      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 24px;
+      background: var(--white); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 26px; transition: all .18s;
     }
-    .feature h3 { font-size: 18px; margin-bottom: 8px; color: var(--accent); }
+    .feature:hover { box-shadow: var(--shadow-lg); transform: translateY(-3px); border-color: #dbeafe; }
+    .feature .icon {
+      width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center;
+      background: var(--accent-soft); font-size: 22px; margin-bottom: 16px;
+    }
+    .feature h3 { font-size: 17px; font-weight: 700; margin-bottom: 8px; }
     .feature p { color: var(--muted); font-size: 14px; }
 
-    .downloads { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
-    .dl-card {
-      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 20px;
-      text-align: center;
+    /* Download */
+    .auto-detect {
+      display: none; background: linear-gradient(135deg,#eff4ff,#e6f7ff);
+      border: 1px solid #bfdbfe; border-radius: var(--radius);
+      padding: 22px 26px; margin-bottom: 24px;
+      display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
     }
-    .dl-card .os { font-size: 20px; font-weight: 700; }
-    .dl-card .desc { color: var(--muted); font-size: 13px; margin: 8px 0 16px; }
-    .dl-card a.btn { padding: 10px 20px; font-size: 14px; }
-
+    .auto-detect strong { font-size: 16px; color: #1e40af; }
+    .auto-detect p { color: #3b5998; font-size: 13px; margin-top: 4px; }
+    .auto-detect .btn { padding: 10px 22px; font-size: 14px; }
+    .downloads { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 18px; }
+    .dl-card {
+      background: var(--white); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 26px 20px; text-align: center; transition: all .18s;
+    }
+    .dl-card:hover { box-shadow: var(--shadow-lg); transform: translateY(-3px); }
+    .dl-card .os { font-size: 21px; font-weight: 800; }
+    .dl-card .desc { color: var(--muted); font-size: 13px; margin: 8px 0 18px; line-height: 1.5; }
+    .dl-card .btn { display: inline-flex; padding: 10px 24px; font-size: 14px; }
+    .dl-card.hl { border: 2px solid var(--accent); box-shadow: 0 0 0 4px rgba(37,99,235,.12); }
     .note {
-      background: #1c2333; border: 1px solid #2d3a5c; border-radius: 10px;
-      padding: 16px 20px; font-size: 14px; color: var(--muted); margin-top: 20px;
+      background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--radius);
+      padding: 18px 22px; font-size: 14px; color: #92400e; margin-top: 24px;
     }
     .note code {
-      background: #0d1117; padding: 2px 8px; border-radius: 6px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent2);
+      background: #fef3c7; padding: 2px 7px; border-radius: 6px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px;
     }
+    .note ol { margin: 8px 0 0 20px; }
 
+    /* Steps */
+    .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; counter-reset: step; }
+    .step {
+      background: var(--white); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 26px; position: relative;
+    }
+    .step .num {
+      width: 32px; height: 32px; border-radius: 50%; background: var(--accent); color: #fff;
+      display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; margin-bottom: 14px;
+    }
+    .step h3 { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+    .step p { color: var(--muted); font-size: 13.5px; }
+
+    /* FAQ */
     .faq details {
-      background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
-      padding: 16px 20px; margin-bottom: 12px;
+      background: var(--white); border: 1px solid var(--border); border-radius: 12px;
+      padding: 18px 22px; margin-bottom: 12px;
     }
-    .faq summary { cursor: pointer; font-weight: 600; color: var(--fg); }
+    .faq summary { cursor: pointer; font-weight: 600; font-size: 15px; }
+    .faq summary:hover { color: var(--accent); }
     .faq p { color: var(--muted); font-size: 14px; margin-top: 10px; }
-
-    footer {
-      text-align: center; padding: 40px 0; color: var(--muted); font-size: 13px;
-      border-top: 1px solid var(--border);
+    .faq code {
+      background: var(--bg); padding: 2px 7px; border-radius: 6px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px;
     }
-    footer a { color: var(--accent); text-decoration: none; }
+
+    /* Footer */
+    footer { border-top: 1px solid var(--border); padding: 44px 0; text-align: center; background: var(--white); }
+    footer a { color: var(--accent); text-decoration: none; font-size: 14px; margin: 0 12px; }
+    footer .copy { color: var(--muted); font-size: 13px; margin-top: 14px; }
+
+    @media (max-width: 640px) {
+      .hero h1 { font-size: 36px; }
+      nav a { margin-left: 16px; }
+      .nav-cta { display: none; }
+      .auto-detect { flex-direction: column; align-items: flex-start; }
+    }
   </style>
 </head>
 <body>
 
+  <!-- Nav -->
+  <nav>
+    <div class="container">
+      <div class="brand"><span class="dot"></span> DeepSeek Harness</div>
+      <div>
+        <a href="#features">功能</a>
+        <a href="#download">下载</a>
+        <a href="#guide">使用</a>
+        <a href="#faq">FAQ</a>
+        <a class="nav-cta" href="https://github.com/hialuoy/deepseek-harness-desktop/releases">下载</a>
+      </div>
+    </div>
+  </nav>
+
   <!-- Hero -->
   <div class="hero">
     <div class="container">
-      <div class="logo">DeepSeek Harness</div>
-      <p class="sub">官方桌面应用 · 零依赖安装 · 轻量高效<br/>Official desktop app — installs in one click, runs on the system WebView</p>
-      <div class="badge">v1.0.0 · macOS · Windows · Linux</div>
+      <span class="badge">v1.0.0 · 正式版 Released</span>
+      <h1>DeepSeek Harness<br/><span class="grad">桌面版</span> Desktop</h1>
+      <p class="sub">官方桌面应用 · 零依赖安装 · 轻量高效,基于系统原生 WebView,比 Electron 版省约 100MB 内存。</p>
       <div class="cta">
-        <a class="btn btn-primary" href="https://github.com/hialuoy/deepseek-harness-desktop/releases">下载 Download ↓</a>
-        <a class="btn btn-ghost" href="https://github.com/hialuoy/deepseek-harness-desktop">GitHub 仓库 →</a>
+        <a class="btn btn-primary" href="#download">免费下载</a>
+        <a class="btn btn-ghost" href="https://github.com/hialuoy/deepseek-harness-desktop">查看 GitHub</a>
       </div>
+      <p class="platforms">macOS · Windows · Linux</p>
     </div>
   </div>
 
   <!-- Features -->
-  <section>
+  <section id="features">
     <div class="container">
-      <h2>为什么选择 DeepSeek Harness 桌面版?</h2>
-      <p class="section-sub">Why DeepSeek Harness Desktop?</p>
+      <div class="sec-head">
+        <div class="eyebrow">Features</div>
+        <h2>为什么选择桌面版?</h2>
+        <p>Why DeepSeek Harness Desktop?</p>
+      </div>
       <div class="features">
         <div class="feature">
-          <h3>🚀 零依赖安装</h3>
+          <div class="icon">🚀</div>
+          <h3>零依赖安装</h3>
           <p>新电脑双击安装包即用。首次启动自动下载私有运行时,无需预装任何工具,无需管理员权限。</p>
         </div>
         <div class="feature">
-          <h3>💾 轻量高效</h3>
-          <p>安装包仅 ~5MB,共享系统 WebView,比 Electron 版节省约 100MB 内存,启动秒开。</p>
+          <div class="icon">💾</div>
+          <h3>轻量高效</h3>
+          <p>安装包仅 ~5MB,共享系统 WebView,启动秒开,比 Electron 版节省约 100MB 内存。</p>
         </div>
         <div class="feature">
-          <h3>🔄 自动更新</h3>
+          <div class="icon">🔄</div>
+          <h3>自动更新</h3>
           <p>启动后自动检查 dsh 新版本,一键升级,始终使用最新能力。</p>
         </div>
         <div class="feature">
-          <h3>🌍 语言自适应</h3>
+          <div class="icon">🌍</div>
+          <h3>语言自适应</h3>
           <p>中文系统显示中文界面,其他语言自动切换英文,全球用户友好。</p>
         </div>
       </div>
@@ -137,15 +226,22 @@
   </section>
 
   <!-- Download -->
-  <section>
+  <section id="download" class="alt">
     <div class="container">
-      <h2>下载 / Download</h2>
-      <p class="section-sub">所有平台安装包均在 GitHub Releases 提供</p>
-      <div class="auto-detect" id="auto-detect" style="display:none; background: var(--accent); color:#fff; border-radius:12px; padding:20px 24px; margin-bottom:24px;">
-        <strong id="detect-title">已检测到你的系统</strong>
-        <div id="detect-desc" style="margin-top:6px; font-size:14px; opacity:.9;"></div>
-        <a id="detect-btn" class="btn" style="display:inline-block; margin-top:14px; background:#fff; color:var(--accent); padding:10px 28px; border-radius:10px; font-weight:700; text-decoration:none;">立即下载</a>
+      <div class="sec-head">
+        <div class="eyebrow">Download</div>
+        <h2>下载 / Download</h2>
+        <p>自动识别你的系统,推荐对应的安装包</p>
       </div>
+
+      <div class="auto-detect" id="auto-detect">
+        <div>
+          <strong id="detect-title">已检测到你的系统</strong>
+          <p id="detect-desc"></p>
+        </div>
+        <a id="detect-btn" class="btn btn-primary" href="#">立即下载</a>
+      </div>
+
       <div class="downloads">
         <div class="dl-card" data-os="macos" data-arch="arm64">
           <div class="os">🍎 macOS</div>
@@ -170,8 +266,8 @@
       </div>
 
       <div class="note">
-        <strong>macOS 用户注意(未签名构建)</strong>:若打开时提示「Apple 无法验证 DeepSeek Harness…」或「已损坏」,请:
-        <ol style="margin: 8px 0 0 20px;">
+        <strong>macOS 用户注意</strong>(未签名构建):若打开时提示「Apple 无法验证 DeepSeek Harness…」或「已损坏」,请:
+        <ol>
           <li>右键 DeepSeek Harness.app → <strong>打开</strong> → 再点 <strong>打开</strong>;或</li>
           <li>终端执行 <code>xattr -dr com.apple.quarantine "/Applications/DeepSeek Harness.app"</code></li>
         </ol>
@@ -180,11 +276,41 @@
     </div>
   </section>
 
+  <!-- Guide -->
+  <section id="guide">
+    <div class="container">
+      <div class="sec-head">
+        <div class="eyebrow">Get Started</div>
+        <h2>三步开始使用</h2>
+        <p>Start in three steps</p>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <div class="num">1</div>
+          <h3>下载安装</h3>
+          <p>从上方下载对应平台的安装包,安装到系统。</p>
+        </div>
+        <div class="step">
+          <div class="num">2</div>
+          <h3>首次启动</h3>
+          <p>自动下载运行时组件(约 1-2 分钟,需联网),之后秒开。</p>
+        </div>
+        <div class="step">
+          <div class="num">3</div>
+          <h3>开始使用</h3>
+          <p>进入 DeepSeek Harness 工作台,体验完整的 AI 工作流。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- FAQ -->
-  <section>
+  <section id="faq" class="alt">
     <div class="container faq">
-      <h2>常见问题 / FAQ</h2>
-      <p class="section-sub"></p>
+      <div class="sec-head">
+        <div class="eyebrow">FAQ</div>
+        <h2>常见问题</h2>
+      </div>
       <details>
         <summary>首次启动为什么会安装东西?</summary>
         <p>应用需要 dsh 运行时。首次启动会自动下载私有 Node.js 与 dsh 到 <code>~/.dsh/toolchain/</code>(需联网,通常 1-2 分钟),之后秒开、离线可用。安装超过 30 秒会显示"请耐心等待",属正常现象。</p>
@@ -206,21 +332,19 @@
 
   <footer>
     <div class="container">
-      <p><a href="https://github.com/hialuoy/deepseek-harness-desktop">GitHub</a> · <a href="https://github.com/hialuoy/deepseek-harness-desktop/issues">Issues 反馈</a> · DeepSeek Harness Desktop © 2026</p>
+      <a href="https://github.com/hialuoy/deepseek-harness-desktop">GitHub</a>
+      <a href="https://github.com/hialuoy/deepseek-harness-desktop/issues">Issues 反馈</a>
+      <div class="copy">© 2026 DeepSeek Harness Desktop</div>
     </div>
   </footer>
 
   <script>
     (function () {
-      // Detect OS + architecture, highlight the matching card and offer a
-      // one-click download banner. Falls back to no highlight when unknown.
       var ua = navigator.userAgent;
       var os = null, arch = null, label = '';
 
       if (/Macintosh|Mac OS X|macOS/i.test(ua)) {
         os = 'macos';
-        // UA cannot distinguish Apple Silicon from Intel; use UA-CH when
-        // available, otherwise present both cards for the user to choose.
         var uaData = navigator.userAgentData;
         if (uaData && uaData.architecture) {
           arch = /arm|aarch64/i.test(uaData.architecture) ? 'arm64' : 'x64';
@@ -240,10 +364,7 @@
           var cOs = c.getAttribute('data-os');
           var cArch = c.getAttribute('data-arch');
           var match = cOs === os && (!cArch || !arch || cArch === arch);
-          if (match) {
-            c.style.border = '2px solid var(--accent)';
-            c.style.boxShadow = '0 0 0 4px rgba(76,141,255,.15)';
-          }
+          if (match) c.classList.add('hl');
         });
         var banner = document.getElementById('auto-detect');
         var btn = document.getElementById('detect-btn');
@@ -253,13 +374,12 @@
           btn.href = matched.querySelector('a').href;
           btn.textContent = '立即下载 ' + label + ' 版本';
           desc.textContent = '已为你推荐 ' + label + ' 的安装包,也可从下方列表选择其他平台。';
-          banner.style.display = 'block';
+          banner.style.display = 'flex';
         } else if (os === 'macos') {
-          // Architecture unknown: point at the Releases page and let the user pick.
           btn.href = 'https://github.com/hialuoy/deepseek-harness-desktop/releases/latest';
           btn.textContent = '前往下载页选择芯片版本';
           desc.textContent = '已检测到 macOS,请在下载页选择 Apple Silicon (M1+) 或 Intel 版本。';
-          banner.style.display = 'block';
+          banner.style.display = 'flex';
         }
       }
     })();
