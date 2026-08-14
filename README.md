@@ -16,11 +16,13 @@ Tauri Rust 主进程
 
 ## 前置条件
 
-- Rust >= 1.70 (`rustup` + stable 工具链)
-- macOS: Xcode Command Line Tools (`xcode-select --install`)
-- Linux: `libwebkit2gtk-4.1-dev` + `libgtk-3-dev`
-- Node.js >= 22.19.0 (用于运行 `dsh`)
-- 如果从源码仓库运行:先 `pnpm install && pnpm run build`
+- 最终用户:无。首次启动会自动下载安装私有 Node.js 与 dsh 到 `~/.dsh/toolchain/`(需网络,无需管理员权限);机器已有 Node.js(>=22)时直接复用。
+- 开发者(从源码运行):
+  - Rust >= 1.70(`rustup` + stable 工具链)
+  - macOS:Xcode Command Line Tools(`xcode-select --install`)
+  - Linux:`libwebkit2gtk-4.1-dev` + `libgtk-3-dev`
+  - Node.js >= 22.19.0(用于运行 `dsh`)
+  - 先 `pnpm install && pnpm run build`(仓库根)
 
 ## 使用
 
@@ -63,7 +65,7 @@ git push origin v0.1.0
 
 然后到 GitHub 仓库的 **Actions** 页观察构建,完成后在 **Releases** 页把草稿发布,即可获得各平台安装包。也可以在 Actions 页手动运行 **release** 工作流(不依赖标签,版本号取 `package.json`)。
 
-> 注:当前发布产物只是"壳"本身;运行时通过 `npx` 拉取 `@deepseek-ai/dsh`,目标机器需要 Node.js + 网络。正式分发可把 dsh 打进 `Resources/app` 实现免依赖;macOS 未签名产物会有 Gatekeeper 提示,需配置签名/公证。
+> 注:应用首启时自动下载 Node.js 官方二进制(当前 LTS v24.19.0)与 `@deepseek-ai/dsh` 到用户目录,目标机器只需网络。macOS 未签名产物会有 Gatekeeper 提示,需配置签名/公证。
 
 ## 与 Electron 版的区别
 
