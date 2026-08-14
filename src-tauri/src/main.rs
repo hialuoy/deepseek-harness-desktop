@@ -334,11 +334,14 @@ const DSH_NO_URL_MSG: &str =
 /// never a panic — a missing toolchain must explain itself in a dialog.
 fn start_dsh() -> Result<(Child, String), String> {
     let (cmd, args, cwd) = resolve_dsh_command();
-    println!(
-        "[desktop] spawning: {} {} {}",
-        cmd,
-        args.join(" "),
-        cwd.as_ref().map(|d| format!("(cwd: {})", d.display())).unwrap_or_default()
+    log_line(
+        "desktop",
+        &format!(
+            "spawning: {} {} {}",
+            cmd,
+            args.join(" "),
+            cwd.as_ref().map(|d| format!("(cwd: {})", d.display())).unwrap_or_default()
+        ),
     );
 
     let mut proc = Command::new(&cmd);
@@ -358,7 +361,7 @@ fn start_dsh() -> Result<(Child, String), String> {
     let mut url = String::new();
     for line in reader.lines() {
         let line = line.unwrap_or_default();
-        println!("[dsh] {}", line);
+        log_line("dsh", &line);
         if let Some(rest) = line.strip_prefix("dsh web: ") {
             url = rest
                 .split_whitespace()
@@ -371,11 +374,11 @@ fn start_dsh() -> Result<(Child, String), String> {
     }
 
     if url.is_empty() {
-        eprintln!("[desktop] ERROR: dsh did not print a URL");
+        log_line("desktop", "ERROR: dsh did not print a URL");
         let _ = child.kill();
         return Err(DSH_NO_URL_MSG.to_string());
     }
-    println!("[desktop] dsh ready at {}", url);
+    log_line("desktop", &format!("dsh ready at {}", url));
     Ok((child, url))
 }
 
@@ -384,7 +387,7 @@ fn kill_dsh(handle: &tauri::AppHandle) {
     let state = handle.state::<DshProcess>();
     let mut guard = state.0.lock().unwrap();
     if let Some(mut child) = guard.take() {
-        println!("[desktop] shutting down dsh");
+        log_line("desktop", "shutting down dsh");
         let _ = child.kill();
         let _ = child.wait();
     }
@@ -458,7 +461,7 @@ fn check_update() -> UpdateInfo {
         (Ok(c), Ok(l)) => l > c,
         _ => false,
     };
-    println!("[desktop] version check: current={} latest={}", current, latest);
+    log_line("desktop", &format!("version check: current={} latest={}", current, latest));
     UpdateInfo { current, latest, update_available }
 }
 
@@ -485,7 +488,7 @@ fn run_upgrade() -> Result<(bool, String), String> {
         (resolve_program("npm"), vec!["install".to_string(), "-g".to_string(), "@deepseek-ai/dsh@latest".to_string()], None)
     };
 
-    println!("[desktop] upgrading: {} {}", cmd, args.join(" "));
+    log_line("desktop", &format!("upgrading: {} {}", cmd, args.join(" ")));
 
     let mut proc = Command::new(&cmd);
     proc.args(&args);
@@ -501,14 +504,14 @@ fn run_upgrade() -> Result<(bool, String), String> {
     let stdout = child.stdout.take().expect("stdout not piped");
     for line in BufReader::new(stdout).lines() {
         let line = line.unwrap_or_default();
-        println!("[upgrade] {}", line);
+        log_line("upgrade", &line);
         output.push_str(&line);
         output.push('\n');
     }
     let stderr = child.stderr.take().expect("stderr not piped");
     for line in BufReader::new(stderr).lines() {
         let line = line.unwrap_or_default();
-        println!("[upgrade:err] {}", line);
+        log_line("upgrade:err", &line);
         output.push_str(&line);
         output.push('\n');
     }
@@ -520,10 +523,49 @@ fn run_upgrade() -> Result<(bool, String), String> {
 fn restart_app(handle: &tauri::AppHandle) {
     kill_dsh(handle);
     if let Ok(exe) = std::env::current_exe() {
-        println!("[desktop] relaunching {}", exe.display());
+        log_line("desktop", &format!("relaunching {}", exe.display()));
         let _ = Command::new(exe).spawn();
     }
     handle.exit(0);
+}
+
+/// Open a URL in the default browser; failures are logged, not surfaced.
+fn open_url(url: &str) {
+    let os = if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else {
+        "linux"
+    };
+    let (cmd, args) = open_url_command(os, url);
+    match Command::new(&cmd).args(&args).spawn() {
+        Ok(_) => log_line("desktop", &format!("opening {}", url)),
+        Err(e) => log_line("desktop", &format!("failed to open {}: {}", url, e)),
+    }
+}
+
+/// Copy the desktop log to a user-chosen location via a save dialog.
+/// Cancellation is a no-op; copy failure shows an error dialog.
+fn export_logs(handle: &tauri::AppHandle, i18n: &I18n) {
+    let default = export_filename(now_unix_secs());
+    let Some(path) = handle.dialog().file().set_file_name(&default).blocking_save_file() else {
+        return;
+    };
+    let Ok(path) = path.into_path() else {
+        return;
+    };
+    match std::fs::copy(log_path(), &path) {
+        Ok(_) => log_line("desktop", &format!("logs exported to {}", path.display())),
+        Err(e) => {
+            let _ = handle
+                .dialog()
+                .message(i18n.export_logs_failed_msg(&e.to_string()))
+                .title(i18n.export_logs())
+                .kind(MessageDialogKind::Error)
+                .blocking_show();
+        }
+    }
 }
 
 /// Keep only meaningful lines from an upgrade run for display: drop
@@ -602,8 +644,9 @@ fn append_log_line(path: &Path, line: &str) -> std::io::Result<()> {
 /// Write a `[prefix] msg` line to stdout and append it to the desktop log.
 /// File failures are silently ignored — logging must never break the app.
 fn log_line(prefix: &str, msg: &str) {
+    use std::io::Write;
     let line = format!("[{}] {}", prefix, msg);
-    println!("{}", line);
+    let _ = writeln!(std::io::stdout(), "{}", line);
     let _ = append_log_line(&log_path(), &line);
 }
 
@@ -705,29 +748,43 @@ fn show_upgrade_progress(handle: &tauri::AppHandle, i18n: &I18n, result: Result<
 }
 
 fn on_menu_event(handle: &tauri::AppHandle, i18n: &I18n, id: &str) {
-    if id == "check_updates" {
-        let handle = handle.clone();
-        let i18n = i18n.clone();
-        tauri::async_runtime::spawn_blocking(move || {
-            let info = check_update();
-            if info.update_available {
-                if ask_yes_no(
-                    &handle,
-                    i18n.update_available_title(),
-                    i18n.update_available_msg(&info.current, &info.latest),
-                ) {
-                    let result = run_upgrade();
-                    show_upgrade_progress(&handle, &i18n, result);
+    match id {
+        "about" => {
+            let _ = handle
+                .dialog()
+                .message(i18n.about_msg(env!("CARGO_PKG_VERSION")))
+                .title(i18n.about())
+                .kind(MessageDialogKind::Info)
+                .blocking_show();
+        }
+        "help" => open_url("https://github.com/hialuoy/deepseek-harness-desktop"),
+        "feedback" => open_url("https://github.com/hialuoy/deepseek-harness-desktop/issues/new"),
+        "export_logs" => export_logs(handle, i18n),
+        "check_updates" => {
+            let handle = handle.clone();
+            let i18n = i18n.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                let info = check_update();
+                if info.update_available {
+                    if ask_yes_no(
+                        &handle,
+                        i18n.update_available_title(),
+                        i18n.update_available_msg(&info.current, &info.latest),
+                    ) {
+                        let result = run_upgrade();
+                        show_upgrade_progress(&handle, &i18n, result);
+                    }
+                } else {
+                    let _ = handle
+                        .dialog()
+                        .message(i18n.up_to_date_msg(&info.current))
+                        .title(i18n.up_to_date_title())
+                        .kind(MessageDialogKind::Info)
+                        .blocking_show();
                 }
-            } else {
-                let _ = handle
-                    .dialog()
-                    .message(i18n.up_to_date_msg(&info.current))
-                    .title(i18n.up_to_date_title())
-                    .kind(MessageDialogKind::Info)
-                    .blocking_show();
-            }
-        });
+            });
+        }
+        _ => {}
     }
 }
 
@@ -741,12 +798,13 @@ fn main() {
         .manage(I18n::detect())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            rotate_log_if_needed();
             // ── 1. Start dsh web ─────────────────────────────────────
             // A missing toolchain must explain itself in a dialog, never crash.
             let (child, url) = match start_dsh() {
                 Ok(v) => v,
                 Err(e) => {
-                    eprintln!("[desktop] ERROR: {}", e);
+                    log_line("desktop", &format!("ERROR: {}", e));
                     let i18n = (*app.state::<I18n>()).clone();
                     let _ = app
                         .dialog()
@@ -771,14 +829,24 @@ fn main() {
 
             // ── 3. App menu: update / upgrade ────────────────────────
             let i18n = (*app.state::<I18n>()).clone();
+            let about_item = MenuItem::with_id(app, "about", i18n.about(), true, None::<&str>)?;
             let check_item = MenuItem::with_id(app, "check_updates", i18n.check_updates(), true, None::<&str>)?;
             let submenu = Submenu::with_items(
                 app,
                 "DeepSeek Harness",
                 true,
-                &[&check_item],
+                &[&about_item, &check_item],
             )?;
-            let menu = Menu::with_items(app, &[&submenu])?;
+            let help_item = MenuItem::with_id(app, "help", i18n.help(), true, None::<&str>)?;
+            let feedback_item = MenuItem::with_id(app, "feedback", i18n.feedback(), true, None::<&str>)?;
+            let export_item = MenuItem::with_id(app, "export_logs", i18n.export_logs(), true, None::<&str>)?;
+            let help_submenu = Submenu::with_items(
+                app,
+                i18n.help_menu(),
+                true,
+                &[&help_item, &feedback_item, &export_item],
+            )?;
+            let menu = Menu::with_items(app, &[&submenu, &help_submenu])?;
             app.set_menu(menu)?;
 
             // ── 4. Auto-check for updates shortly after startup ──────
