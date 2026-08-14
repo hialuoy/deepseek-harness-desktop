@@ -565,10 +565,44 @@ fn current_version() -> String {
     "unknown".to_string()
 }
 
+/// Command to run npm via the private toolchain's node + bundled npm-cli.js,
+/// when a complete private toolchain exists. Falls back to None otherwise.
+fn private_npm_cmd(
+    toolchain: &Path,
+    prefix: &Path,
+    extra: &[&str],
+) -> Option<(String, Vec<String>)> {
+    let (node, _dsh) = bootstrap::private_node_and_dsh(toolchain)?;
+    let npm_cli = bootstrap::npm_cli_from_node(&node);
+    if !npm_cli.exists() {
+        return None;
+    }
+    let mut args = vec![npm_cli.to_string_lossy().into_owned()];
+    args.extend(extra.iter().map(|s| s.to_string()));
+    args.push("--prefix".to_string());
+    args.push(prefix.to_string_lossy().into_owned());
+    Some((node.to_string_lossy().into_owned(), args))
+}
+
 /// Query the npm registry for the latest published dsh version.
 fn latest_version() -> String {
-    let output = Command::new(resolve_program("npm"))
-        .args(["view", "@deepseek-ai/dsh", "version"])
+    let (cmd, args) = match private_npm_cmd(
+        &bootstrap::toolchain_dir(),
+        &bootstrap::toolchain_dir(),
+        &["view", "@deepseek-ai/dsh", "version"],
+    ) {
+        Some(pair) => pair,
+        None => (
+            resolve_program("npm"),
+            vec![
+                "view".to_string(),
+                "@deepseek-ai/dsh".to_string(),
+                "version".to_string(),
+            ],
+        ),
+    };
+    let output = Command::new(&cmd)
+        .args(&args)
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .env("PATH", augmented_path())
@@ -618,8 +652,27 @@ fn run_upgrade() -> Result<(bool, String), String> {
             ],
             Some(root),
         )
+    } else if let Some((node, args)) = private_npm_cmd(
+        &bootstrap::toolchain_dir(),
+        &bootstrap::toolchain_dir(),
+        &[
+            "install",
+            "--no-fund",
+            "--no-audit",
+            "@deepseek-ai/dsh@latest",
+        ],
+    ) {
+        (node, args, None)
     } else {
-        (resolve_program("npm"), vec!["install".to_string(), "-g".to_string(), "@deepseek-ai/dsh@latest".to_string()], None)
+        (
+            resolve_program("npm"),
+            vec![
+                "install".to_string(),
+                "-g".to_string(),
+                "@deepseek-ai/dsh@latest".to_string(),
+            ],
+            None,
+        )
     };
 
     println!("[desktop] upgrading: {} {}", cmd, args.join(" "));
@@ -1166,5 +1219,46 @@ mod tests {
         assert_eq!(i18n.bootstrap_step(bootstrap::Step::Install), "Installing dsh…");
         assert_eq!(i18n.bootstrap_failed_title(), "Setup Failed");
         assert!(i18n.bootstrap_failed_msg("boom").contains("Retry"));
+    }
+
+    #[test]
+    fn private_npm_cmd_builds_node_npmcli_args() {
+        let root = std::env::temp_dir().join(format!("dsh-npmcmd-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let tc = root.join("toolchain");
+        std::fs::create_dir_all(tc.join("node-24.19.0/bin")).unwrap();
+        std::fs::write(tc.join("node-24.19.0/bin/node"), b"").unwrap();
+        let npm_cli = tc.join("node-24.19.0/lib/node_modules/npm/bin");
+        std::fs::create_dir_all(&npm_cli).unwrap();
+        std::fs::write(npm_cli.join("npm-cli.js"), b"").unwrap();
+        std::fs::create_dir_all(tc.join("node_modules/.bin")).unwrap();
+        std::fs::write(tc.join("node_modules/.bin/dsh"), b"").unwrap();
+
+        let (cmd, args) = private_npm_cmd(&tc, &tc, &["view", "@deepseek-ai/dsh", "version"])
+            .expect("complete private toolchain");
+        assert_eq!(cmd, tc.join("node-24.19.0/bin/node").to_string_lossy());
+        assert_eq!(
+            args,
+            vec![
+                tc.join("node-24.19.0/lib/node_modules/npm/bin/npm-cli.js")
+                    .to_string_lossy()
+                    .into_owned(),
+                "view".to_string(),
+                "@deepseek-ai/dsh".to_string(),
+                "version".to_string(),
+                "--prefix".to_string(),
+                tc.to_string_lossy().into_owned(),
+            ]
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn private_npm_cmd_none_without_toolchain() {
+        let root = std::env::temp_dir().join(format!("dsh-npmcmd-empty-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        assert!(private_npm_cmd(&root, &root, &["view"]).is_none());
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

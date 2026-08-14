@@ -51,7 +51,6 @@ pub fn npm_cli_js(toolchain: &Path, version: &str) -> PathBuf {
 
 /// Derive the bundled npm-cli.js path from the node binary location,
 /// so it works for whatever version dir actually exists.
-#[allow(dead_code)]
 pub fn npm_cli_from_node(node: &Path) -> PathBuf {
     node.parent()
         .unwrap_or(Path::new(""))
