@@ -554,10 +554,91 @@ fn clean_output(output: &str) -> String {
     kept.join("\n")
 }
 
+/// Per-user dsh config dir (`~/.dsh`), created on demand by writers.
+fn dsh_dir() -> PathBuf {
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
+    PathBuf::from(home).join(".dsh")
+}
+
 /// State file recording the last auto-prompt so a version nags at most once a day.
 fn prompt_state_path() -> PathBuf {
-    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
-    PathBuf::from(home).join(".dsh").join("desktop-update-state.json")
+    dsh_dir().join("desktop-update-state.json")
+}
+
+/// Path of the rolling desktop log file.
+fn log_path() -> PathBuf {
+    dsh_dir().join("desktop.log")
+}
+
+/// Max log file size before rotation (bytes).
+const LOG_MAX_BYTES: u64 = 1024 * 1024;
+
+/// True when a log file of `size` bytes exceeds the rotation cap.
+fn should_rotate(size: u64, cap: u64) -> bool {
+    size > cap
+}
+
+/// Rotate the log at startup: if desktop.log exceeds the cap, move it to
+/// desktop.old.log (overwriting any previous rotation). Failures are ignored.
+fn rotate_log_if_needed() {
+    let path = log_path();
+    if let Ok(meta) = std::fs::metadata(&path) {
+        if should_rotate(meta.len(), LOG_MAX_BYTES) {
+            let _ = std::fs::rename(&path, dsh_dir().join("desktop.old.log"));
+        }
+    }
+}
+
+/// Append one line to `path`, creating parent dirs and the file as needed.
+fn append_log_line(path: &Path, line: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
+    writeln!(f, "{}", line)
+}
+
+/// Write a `[prefix] msg` line to stdout and append it to the desktop log.
+/// File failures are silently ignored — logging must never break the app.
+fn log_line(prefix: &str, msg: &str) {
+    let line = format!("[{}] {}", prefix, msg);
+    println!("{}", line);
+    let _ = append_log_line(&log_path(), &line);
+}
+
+/// Current UNIX time in seconds (0 on clock failure).
+fn now_unix_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or_default()
+}
+
+/// `YYYYMMDD-HHMMSS` (UTC) for a UNIX timestamp, via civil-from-days
+/// (Howard Hinnant's algorithm) — no chrono dependency.
+fn timestamp_compact(secs: i64) -> String {
+    let days = secs.div_euclid(86_400);
+    let rem = secs.rem_euclid(86_400);
+    let (hh, mm, ss) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let mut y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    if m <= 2 {
+        y += 1;
+    }
+    format!("{:04}{:02}{:02}-{:02}{:02}{:02}", y, m, d, hh, mm, ss)
+}
+
+/// Default filename for an exported log bundle.
+fn export_filename(secs: i64) -> String {
+    format!("dsh-desktop-{}.log", timestamp_compact(secs))
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Default)]
@@ -880,5 +961,37 @@ mod tests {
         );
         assert_eq!(open_url_command("linux", url), ("xdg-open".to_string(), vec![url.to_string()]));
         assert_eq!(open_url_command("freebsd", url), ("xdg-open".to_string(), vec![url.to_string()]));
+    }
+
+    #[test]
+    fn timestamp_compact_known_epochs_utc() {
+        assert_eq!(timestamp_compact(0), "19700101-000000");
+        assert_eq!(timestamp_compact(946_684_800), "20000101-000000");
+        assert_eq!(timestamp_compact(951_782_400), "20000229-000000");
+        assert_eq!(timestamp_compact(951_868_800), "20000301-000000");
+        assert_eq!(timestamp_compact(951_868_800 + 36_000), "20000301-100000");
+    }
+
+    #[test]
+    fn export_filename_format() {
+        assert_eq!(export_filename(951_868_800), "dsh-desktop-20000301-000000.log");
+    }
+
+    #[test]
+    fn should_rotate_only_above_cap() {
+        assert!(!should_rotate(1024 * 1024, 1024 * 1024));
+        assert!(should_rotate(1024 * 1024 + 1, 1024 * 1024));
+    }
+
+    #[test]
+    fn append_log_line_creates_dirs_and_appends() {
+        let dir = std::env::temp_dir().join(format!("dsh-log-test-{}", std::process::id()));
+        let path = dir.join("nested").join("test.log");
+        let _ = std::fs::remove_dir_all(&dir);
+        append_log_line(&path, "first").unwrap();
+        append_log_line(&path, "second").unwrap();
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "first\nsecond\n");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
