@@ -7,15 +7,11 @@ use std::process::Command;
 
 use semver::Version;
 
-#[allow(dead_code)]
 pub const NODE_VERSION: &str = "24.19.0";
-#[allow(dead_code)]
 pub const MIN_NODE_VERSION: &str = "22.0.0";
-#[allow(dead_code)]
 pub const DSH_PACKAGE: &str = "@deepseek-ai/dsh";
 
 /// HOME on Unix, USERPROFILE on Windows — mirrors main.rs state-file lookup.
-#[allow(dead_code)]
 pub fn home_dir() -> PathBuf {
     std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
@@ -27,19 +23,16 @@ pub fn toolchain_dir() -> PathBuf {
     home_dir().join(".dsh").join("toolchain")
 }
 
-#[allow(dead_code)]
 pub fn node_dir(toolchain: &Path, version: &str) -> PathBuf {
     toolchain.join(format!("node-{}", version))
 }
 
-#[allow(dead_code)]
 pub fn node_bin(toolchain: &Path, version: &str) -> PathBuf {
     node_dir(toolchain, version)
         .join("bin")
         .join(if cfg!(windows) { "node.exe" } else { "node" })
 }
 
-#[allow(dead_code)]
 pub fn npm_cli_js(toolchain: &Path, version: &str) -> PathBuf {
     node_dir(toolchain, version)
         .join("lib")
@@ -64,7 +57,6 @@ pub fn npm_cli_from_node(node: &Path) -> PathBuf {
 }
 
 /// (os, arch) naming used by nodejs.org release files; None on unsupported platforms.
-#[allow(dead_code)]
 pub fn platform_arch() -> Option<(&'static str, &'static str)> {
     let os = if cfg!(target_os = "macos") {
         "darwin"
@@ -81,13 +73,11 @@ pub fn platform_arch() -> Option<(&'static str, &'static str)> {
     Some((os, arch))
 }
 
-#[allow(dead_code)]
 pub fn archive_name(version: &str, os: &str, arch: &str) -> String {
     let ext = if os == "darwin" { "tar.xz" } else { "zip" };
     format!("node-v{}-{}-{}.{}", version, os, arch, ext)
 }
 
-#[allow(dead_code)]
 pub fn archive_url(version: &str, os: &str, arch: &str) -> String {
     format!(
         "https://nodejs.org/dist/v{}/{}",
@@ -97,13 +87,11 @@ pub fn archive_url(version: &str, os: &str, arch: &str) -> String {
 }
 
 /// Top-level directory name inside the downloaded archive.
-#[allow(dead_code)]
 pub fn extracted_top_dir(version: &str, os: &str, arch: &str) -> String {
     format!("node-v{}-{}-{}", version, os, arch)
 }
 
 /// True when `node -v` output parses as >= MIN_NODE_VERSION.
-#[allow(dead_code)]
 pub fn parse_node_version_ok(output: &str) -> bool {
     let v = output.trim().strip_prefix('v').unwrap_or(output.trim());
     match Version::parse(v) {
@@ -113,7 +101,6 @@ pub fn parse_node_version_ok(output: &str) -> bool {
 }
 
 /// Run `node -v` and check it meets MIN_NODE_VERSION.
-#[allow(dead_code)]
 pub fn node_version_ok(node: &Path) -> bool {
     Command::new(node)
         .arg("-v")
@@ -150,7 +137,6 @@ pub fn private_node_and_dsh(toolchain: &Path) -> Option<(PathBuf, PathBuf)> {
 }
 
 /// Args for `node npm-cli.js <args...>` installing dsh into the private prefix.
-#[allow(dead_code)]
 pub fn npm_install_args(prefix: &Path) -> Vec<String> {
     vec![
         "install".to_string(),
@@ -180,7 +166,6 @@ pub fn script_path_with_node(node: &Path) -> String {
 }
 
 /// Run `<node> <npm-cli.js> install ...`; Ok(output) on success, Err(tail) on failure.
-#[allow(dead_code)]
 pub fn install_dsh(node: &Path, npm_cli: &Path, prefix: &Path) -> Result<String, String> {
     let output = Command::new(node)
         .arg(npm_cli)
@@ -201,7 +186,6 @@ pub fn install_dsh(node: &Path, npm_cli: &Path, prefix: &Path) -> Result<String,
 
 /// Stream-download `url` to `dest`, calling `on_progress(bytes, total)` at most
 /// once per MiB (and once at completion).
-#[allow(dead_code)]
 pub fn download_node(
     url: &str,
     dest: &Path,
@@ -245,7 +229,6 @@ pub fn download_node(
 
 /// Extract the downloaded archive into `dest_dir` using system tools:
 /// `tar -xJf` on macOS, PowerShell `Expand-Archive` on Windows.
-#[allow(dead_code)]
 pub fn extract_archive(archive: &Path, dest_dir: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dest_dir)
         .map_err(|e| format!("mkdir {}: {}", dest_dir.display(), e))?;
@@ -276,7 +259,6 @@ pub fn extract_archive(archive: &Path, dest_dir: &Path) -> Result<(), String> {
 }
 
 /// Rename the archive's top-level dir to the canonical `node-<version>` name.
-#[allow(dead_code)]
 pub fn move_into_node_dir(
     toolchain: &Path,
     version: &str,
@@ -290,7 +272,6 @@ pub fn move_into_node_dir(
 }
 
 /// Bootstrap progress states, surfaced to the UI (localized by the caller).
-#[allow(dead_code)]
 pub enum Step {
     Download,
     Extract,
@@ -300,7 +281,6 @@ pub enum Step {
 /// Full bootstrap: clean any half-installed toolchain, download, extract,
 /// install dsh, verify. `on_progress(step, percent)` — percent is None while
 /// the step is indeterminate.
-#[allow(dead_code)]
 pub fn install(mut on_progress: impl FnMut(Step, Option<f64>)) -> Result<(), String> {
     let (os, arch) = platform_arch().ok_or("unsupported platform/arch")?;
     let toolchain = toolchain_dir();
@@ -347,6 +327,14 @@ pub fn install(mut on_progress: impl FnMut(Step, Option<f64>)) -> Result<(), Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn bin_name() -> &'static str {
+        if cfg!(windows) {
+            "node.exe"
+        } else {
+            "node"
+        }
+    }
 
     #[test]
     fn archive_name_for_macos_arm64_is_tar_xz() {
@@ -404,6 +392,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn platform_arch_maps_native_values() {
         let (os, arch) = platform_arch().expect("supported platform");
         assert!(os == "darwin" || os == "win");
@@ -430,7 +419,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         let tc = root.join("toolchain");
         std::fs::create_dir_all(tc.join("node-24.19.0/bin")).unwrap();
-        std::fs::write(tc.join("node-24.19.0/bin/node"), b"").unwrap();
+        std::fs::write(tc.join("node-24.19.0").join("bin").join(bin_name()), b"").unwrap();
         assert!(private_node_and_dsh(&tc).is_none());
         std::fs::create_dir_all(tc.join("node_modules/.bin")).unwrap();
         std::fs::write(tc.join("node_modules/.bin/dsh"), b"").unwrap();
@@ -446,7 +435,7 @@ mod tests {
         let tc = root.join("toolchain");
         for v in ["node-22.9.0", "node-24.19.0"] {
             std::fs::create_dir_all(tc.join(v).join("bin")).unwrap();
-            std::fs::write(tc.join(v).join("bin/node"), b"").unwrap();
+            std::fs::write(tc.join(v).join("bin").join(bin_name()), b"").unwrap();
         }
         std::fs::create_dir_all(tc.join("node_modules/.bin")).unwrap();
         std::fs::write(tc.join("node_modules/.bin/dsh"), b"").unwrap();

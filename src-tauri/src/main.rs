@@ -1095,6 +1095,14 @@ mod tests {
         name.to_string()
     }
 
+    fn node_bin_name() -> &'static str {
+        if cfg!(windows) {
+            "node.exe"
+        } else {
+            "node"
+        }
+    }
+
     #[test]
     fn nvm_versions_sort_newest_first_by_semver() {
         let entries = vec![
@@ -1298,7 +1306,11 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         let tc = root.join("toolchain");
         std::fs::create_dir_all(tc.join("node-24.19.0/bin")).unwrap();
-        std::fs::write(tc.join("node-24.19.0/bin/node"), b"").unwrap();
+        std::fs::write(
+            tc.join("node-24.19.0").join("bin").join(node_bin_name()),
+            b"",
+        )
+        .unwrap();
         let npm_cli = tc.join("node-24.19.0/lib/node_modules/npm/bin");
         std::fs::create_dir_all(&npm_cli).unwrap();
         std::fs::write(npm_cli.join("npm-cli.js"), b"").unwrap();
@@ -1307,7 +1319,13 @@ mod tests {
 
         let (cmd, args) = private_npm_cmd(&tc, &tc, &["view", "@deepseek-ai/dsh", "version"])
             .expect("complete private toolchain");
-        assert_eq!(cmd, tc.join("node-24.19.0/bin/node").to_string_lossy());
+        assert_eq!(
+            cmd,
+            tc.join("node-24.19.0")
+                .join("bin")
+                .join(node_bin_name())
+                .to_string_lossy()
+        );
         assert_eq!(
             args,
             vec![
