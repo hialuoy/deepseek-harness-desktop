@@ -1331,3 +1331,6 @@ git commit -m "docs: update prerequisites for first-launch bootstrap"
 
 - **Task 2**:`private_node_and_dsh` 的 `?`-in-loop 写法是计划缺陷——工具链目录中总有 `node_modules/` 等非 `node-*` 条目,`?` 会从函数返回 `None`,导致完整工具链永远检测不到。已按 skip 模式修正(评审裁定 JUSTIFIED)。
 - **Task 2**:reqwest 0.13 blocking `ClientBuilder` 没有 `read_timeout`,只有 `timeout`;计划中的 `read_timeout` 改为 `timeout`(评审裁定 JUSTIFIED)。
+- **Task 2(e2e 发现)**:`install_dsh` 直接跑 `node npm-cli.js` 时,npm 不会把私有 node 的 bin 目录加入生命周期脚本 PATH,dsh 依赖 koffi 的 install 脚本 `sh: node: command not found` → 安装必败。已修复:`.env("PATH", script_path_with_node(node))`(commit 7b66a48)。
+- **Task 4/5(e2e 发现,重大修订)**:引导页三种常规加载方式在 dev 模式全部不可用——`WebviewUrl::App` 会把路径 join 到 devUrl(`about:blank`,非 base URL)→ panic;dev 模式下 tauri-codegen 在 `dev && dev_url.is_some()` 时嵌入**空资产表**,tauri://localhost 协议返回 asset not found;`about:blank` 在 WKWebView 不触发导航完成回调、不注入初始化脚本 → 空白窗口。**最终方案**:`serve_bootstrap_html()` 在 `127.0.0.1:0` 起 loopback HTTP 服务提供完整 HTML 页面,窗口加载该 URL——与主窗口加载 dsh 的模式一致,dev/prod 行为统一(commit 2d67820,替代 8a07c9e)。`dist/bootstrap.html` 已删除,HTML 内联为 `BOOTSTRAP_HTML` 常量;`on_page_load`/eval 注入方案废弃。
+- **Task 2**:reqwest 0.13 blocking `ClientBuilder` 没有 `read_timeout`,只有 `timeout`;计划中的 `read_timeout` 改为 `timeout`(评审裁定 JUSTIFIED)。
