@@ -16,6 +16,84 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind, Me
 struct DshProcess(Mutex<Option<Child>>);
 
 // ---------------------------------------------------------------------------
+// Localization
+// ---------------------------------------------------------------------------
+
+/// Localized strings for menu items and dialogs, chosen by the system locale.
+/// Chinese (`zh*`) locales get Simplified Chinese copy; everything else English.
+#[derive(Clone)]
+struct I18n {
+    is_zh: bool,
+}
+
+impl I18n {
+    fn detect() -> Self {
+        let is_zh = sys_locale::get_locales().any(|l| l.to_lowercase().starts_with("zh"));
+        I18n { is_zh }
+    }
+
+    fn check_updates(&self) -> &'static str {
+        if self.is_zh { "检查更新…" } else { "Check for Updates…" }
+    }
+
+    fn upgrade(&self) -> &'static str {
+        if self.is_zh { "升级 dsh…" } else { "Upgrade dsh…" }
+    }
+
+    fn update_available_title(&self) -> &'static str {
+        if self.is_zh { "发现新版本" } else { "Update Available" }
+    }
+
+    fn up_to_date_title(&self) -> &'static str {
+        if self.is_zh { "已是最新版本" } else { "Up to Date" }
+    }
+
+    fn upgrade_title(&self) -> &'static str {
+        if self.is_zh { "升级 dsh" } else { "Upgrade dsh" }
+    }
+
+    fn update_available_msg(&self, current: &str, latest: &str) -> String {
+        if self.is_zh {
+            format!("发现 dsh 新版本。\n\n  当前版本:  {}\n  最新版本:  {}\n\n立即升级?", current, latest)
+        } else {
+            format!("A new version of dsh is available.\n\n  Current:  {}\n  Latest:   {}\n\nUpgrade now?", current, latest)
+        }
+    }
+
+    fn up_to_date_msg(&self, current: &str) -> String {
+        if self.is_zh {
+            format!("dsh 已是最新版本({})。", current)
+        } else {
+            format!("dsh is up to date (version {}).", current)
+        }
+    }
+
+    fn upgrade_success_msg(&self) -> String {
+        if self.is_zh {
+            "dsh 升级成功。\n\n立即重启以应用更新?".to_string()
+        } else {
+            "dsh upgraded successfully.\n\nRestart now to apply the update?".to_string()
+        }
+    }
+
+    fn upgrade_failed_msg(&self, tail: &str) -> String {
+        if self.is_zh {
+            format!("升级失败(退出码非零)。\n\n{}", tail)
+        } else {
+            format!("Upgrade failed (exit code non-zero).\n\n{}", tail)
+        }
+    }
+
+    fn upgrade_error_msg(&self, e: &str) -> String {
+        if self.is_zh {
+            format!("升级失败:\n{}", e)
+        } else {
+            format!("Upgrade failed:\n{}", e)
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Mode detection
 // ---------------------------------------------------------------------------
 
@@ -206,7 +284,9 @@ fn run_upgrade() -> Result<(bool, String), String> {
             "sh".to_string(),
             vec![
                 "-c".to_string(),
-                "git pull --rebase && pnpm install && pnpm run build".to_string(),
+                // --autostash stashes and reapplies local changes across the rebase,
+                // so a dirty working tree does not block the update.
+                "git pull --rebase --autostash && pnpm install && pnpm run build".to_string(),
             ],
             Some(root),
         )
@@ -254,65 +334,124 @@ fn restart_app(handle: &tauri::AppHandle) {
     handle.exit(0);
 }
 
+/// Keep only meaningful lines from an upgrade run for display: drop
+/// tsdown/rollup noise (deprecation warnings, plugin timings, per-package
+/// config-file chatter) so a failure dialog shows the actual error.
+fn clean_output(output: &str) -> String {
+    let kept: Vec<&str> = output
+        .lines()
+        .filter(|line| {
+            let l = line.trim();
+            if l.is_empty() { return false; }
+            !l.contains(" WARN ")
+                && !l.contains("deprecated")
+                && !l.contains("PLUGIN_TIMINGS")
+                && !l.contains("config file:")
+                && !l.contains("Detected dependencies")
+                && !l.contains("See more at")
+                && !l.contains("Hint:")
+                && !l.contains("entry: lib/types")
+                && !l.contains("tsconfig:")
+                && !l.starts_with("target:")
+                && !l.starts_with("- ")
+                && !l.starts_with("$ ")
+                && !l.starts_with('ℹ')
+                && !l.starts_with('✔')
+        })
+        .collect();
+    kept.join("\n")
+}
+
+/// State file recording the last auto-prompt so a version nags at most once a day.
+fn prompt_state_path() -> PathBuf {
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
+    PathBuf::from(home).join(".dsh").join("desktop-update-state.json")
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+struct PromptState {
+    last_prompted_version: String,
+    last_prompted_at: u64,
+}
+
+/// Decide whether the startup auto-check may prompt for this latest version:
+/// false when the same version was already offered within the last 24 hours.
+/// Records the prompt attempt before returning true.
+fn should_auto_prompt(latest: &str) -> bool {
+    let path = prompt_state_path();
+    let state: PromptState = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or_default();
+    if state.last_prompted_version == latest && now.saturating_sub(state.last_prompted_at) < 24 * 3600 {
+        return false;
+    }
+    let next = PromptState { last_prompted_version: latest.to_string(), last_prompted_at: now };
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(&path, serde_json::to_string(&next).unwrap_or_default());
+    true
+}
+
 // ---------------------------------------------------------------------------
 // Menu actions
 // ---------------------------------------------------------------------------
 
-fn show_upgrade_progress(handle: &tauri::AppHandle, result: Result<(bool, String), String>) {
+fn show_upgrade_progress(handle: &tauri::AppHandle, i18n: &I18n, result: Result<(bool, String), String>) {
     let (ok, output) = match result {
         Ok(v) => v,
         Err(e) => {
             let _ = handle.dialog()
-                .message(format!("Upgrade failed:\n{}", e))
-                .title("Upgrade dsh")
+                .message(i18n.upgrade_error_msg(&e))
+                .title(i18n.upgrade_title())
                 .kind(MessageDialogKind::Error)
                 .blocking_show();
             return;
         }
     };
-    let tail = output.trim_end();
-    let tail = &tail[tail.len().saturating_sub(2000)..];
     if ok {
-        if ask_yes_no(
-            handle,
-            "Upgrade dsh",
-            format!("dsh upgraded successfully.\n\n{tail}\n\nRestart now to apply the update?"),
-        ) {
+        // Success shows a clean message; the build log belongs in the console.
+        if ask_yes_no(handle, i18n.upgrade_title(), i18n.upgrade_success_msg()) {
             restart_app(handle);
         }
     } else {
+        let cleaned = clean_output(&output);
+        let tail = &cleaned[cleaned.len().saturating_sub(1500)..];
         let _ = handle
             .dialog()
-            .message(format!("Upgrade failed (exit code non-zero).\n\n{tail}"))
-            .title("Upgrade dsh")
+            .message(i18n.upgrade_failed_msg(tail))
+            .title(i18n.upgrade_title())
             .kind(MessageDialogKind::Error)
             .blocking_show();
     }
 }
 
-fn on_menu_event(handle: &tauri::AppHandle, id: &str) {
+fn on_menu_event(handle: &tauri::AppHandle, i18n: &I18n, id: &str) {
     match id {
         "check_updates" => {
             let handle = handle.clone();
+            let i18n = i18n.clone();
             tauri::async_runtime::spawn_blocking(move || {
                 let info = check_update();
                 if info.update_available {
                     if ask_yes_no(
                         &handle,
-                        "Update Available",
-                        format!(
-                            "A new version of dsh is available.\n\n  Current:  {}\n  Latest:   {}\n\nUpgrade now?",
-                            info.current, info.latest
-                        ),
+                        i18n.update_available_title(),
+                        i18n.update_available_msg(&info.current, &info.latest),
                     ) {
                         let result = run_upgrade();
-                        show_upgrade_progress(&handle, result);
+                        show_upgrade_progress(&handle, &i18n, result);
                     }
                 } else {
                     let _ = handle
                         .dialog()
-                        .message(format!("dsh is up to date (version {}).", info.current))
-                        .title("Up to Date")
+                        .message(i18n.up_to_date_msg(&info.current))
+                        .title(i18n.up_to_date_title())
                         .kind(MessageDialogKind::Info)
                         .blocking_show();
                 }
@@ -320,9 +459,10 @@ fn on_menu_event(handle: &tauri::AppHandle, id: &str) {
         }
         "upgrade" => {
             let handle = handle.clone();
+            let i18n = i18n.clone();
             tauri::async_runtime::spawn_blocking(move || {
                 let result = run_upgrade();
-                show_upgrade_progress(&handle, result);
+                show_upgrade_progress(&handle, &i18n, result);
             });
         }
         _ => {}
@@ -336,6 +476,7 @@ fn on_menu_event(handle: &tauri::AppHandle, id: &str) {
 fn main() {
     tauri::Builder::default()
         .manage(DshProcess(Mutex::new(None)))
+        .manage(I18n::detect())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // ── 1. Start dsh web ─────────────────────────────────────
@@ -353,8 +494,9 @@ fn main() {
             .build()?;
 
             // ── 3. App menu: update / upgrade ────────────────────────
-            let check_item = MenuItem::with_id(app, "check_updates", "Check for Updates…", true, None::<&str>)?;
-            let upgrade_item = MenuItem::with_id(app, "upgrade", "Upgrade dsh…", true, None::<&str>)?;
+            let i18n = (*app.state::<I18n>()).clone();
+            let check_item = MenuItem::with_id(app, "check_updates", i18n.check_updates(), true, None::<&str>)?;
+            let upgrade_item = MenuItem::with_id(app, "upgrade", i18n.upgrade(), true, None::<&str>)?;
             let submenu = Submenu::with_items(
                 app,
                 "DeepSeek Harness",
@@ -365,23 +507,25 @@ fn main() {
             app.set_menu(menu)?;
 
             // ── 4. Auto-check for updates shortly after startup ──────
+            // Nags at most once per day per version: a dismissed prompt stays
+            // quiet until the version changes or a day passes. The manual
+            // menu item always checks immediately.
             {
                 let handle = app.handle().clone();
+                let i18n = i18n.clone();
                 tauri::async_runtime::spawn(async move {
                     std::thread::sleep(Duration::from_secs(5));
                     let info = check_update();
                     if info.update_available
+                        && should_auto_prompt(&info.latest)
                         && ask_yes_no(
                             &handle,
-                            "Update Available",
-                            format!(
-                                "A new version of dsh is available.\n\n  Current:  {}\n  Latest:   {}\n\nUpgrade now?",
-                                info.current, info.latest
-                            ),
+                            i18n.update_available_title(),
+                            i18n.update_available_msg(&info.current, &info.latest),
                         )
                     {
                         let result = run_upgrade();
-                        show_upgrade_progress(&handle, result);
+                        show_upgrade_progress(&handle, &i18n, result);
                     }
                 });
             }
@@ -389,7 +533,8 @@ fn main() {
             Ok(())
         })
         .on_menu_event(|app, event| {
-            on_menu_event(app, event.id().as_ref());
+            let i18n = (*app.state::<I18n>()).clone();
+            on_menu_event(app, &i18n, event.id().as_ref());
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {

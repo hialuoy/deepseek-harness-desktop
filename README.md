@@ -37,6 +37,16 @@ pnpm dev
 pnpm build
 ```
 
+## 检查更新 / 升级 dsh
+
+应用启动 5 秒后自动检查 npm 最新版本,菜单栏 **DeepSeek Harness → Check for Updates…** 可手动检查。
+
+- **界面语言**:根据系统语言自动选择——中文系统(`zh*`)显示「检查更新… / 升级 dsh…」及中文对话框,其他语言显示英文(`sys-locale` 检测)
+- **版本比较**:semver 对比 `dsh -V`(当前)与 `npm view @deepseek-ai/dsh version`(最新)
+- **源码模式**升级:自动执行 `git pull --rebase --autostash && pnpm install && pnpm run build`
+- **生产模式**升级:自动执行 `npm install -g @deepseek-ai/dsh@latest`
+- **升级完成后**:询问是否重启应用(杀掉 dsh 子进程 → 重新拉起应用)
+
 ## 与 Electron 版的区别
 
 | | Electron 版 | Tauri 版 |
