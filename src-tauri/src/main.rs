@@ -756,16 +756,24 @@ fn show_upgrade_progress(handle: &tauri::AppHandle, i18n: &I18n, result: Result<
 fn on_menu_event(handle: &tauri::AppHandle, i18n: &I18n, id: &str) {
     match id {
         "about" => {
-            let _ = handle
-                .dialog()
-                .message(i18n.about_msg(env!("CARGO_PKG_VERSION")))
-                .title(i18n.about())
-                .kind(MessageDialogKind::Info)
-                .blocking_show();
+            let handle = handle.clone();
+            let i18n = i18n.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                let _ = handle
+                    .dialog()
+                    .message(i18n.about_msg(env!("CARGO_PKG_VERSION")))
+                    .title(i18n.about())
+                    .kind(MessageDialogKind::Info)
+                    .blocking_show();
+            });
         }
         "help" => open_url("https://github.com/hialuoy/deepseek-harness-desktop"),
         "feedback" => open_url("https://github.com/hialuoy/deepseek-harness-desktop/issues/new"),
-        "export_logs" => export_logs(handle, i18n),
+        "export_logs" => {
+            let handle = handle.clone();
+            let i18n = i18n.clone();
+            tauri::async_runtime::spawn_blocking(move || export_logs(&handle, &i18n));
+        }
         "check_updates" => {
             let handle = handle.clone();
             let i18n = i18n.clone();
