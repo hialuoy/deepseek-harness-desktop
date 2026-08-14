@@ -328,10 +328,10 @@ const BOOTSTRAP_HTML: &str = r#"<!DOCTYPE html>
 <meta charset="UTF-8" />
 <title>DeepSeek Harness Setup</title>
 <style>
-body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #1a1a2e; color: #eee; margin: 0; display: flex; align-items: center; justify-content: center; height: 100vh; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #ffffff; color: #333333; margin: 0; display: flex; align-items: center; justify-content: center; height: 100vh; }
 .wrap { width: 80%; }
 p { font-size: 15px; text-align: center; margin: 0 0 18px; }
-.bar { height: 6px; background: #2d2d4a; border-radius: 3px; overflow: hidden; }
+.bar { height: 6px; background: #e5e5e5; border-radius: 3px; overflow: hidden; }
 #fill { height: 100%; width: 0; background: #4c8dff; border-radius: 3px; transition: width .2s ease; }
 #fill.indeterminate { width: 40%; animation: slide 1.2s ease-in-out infinite; }
 @keyframes slide { 0% { margin-left: -40%; } 100% { margin-left: 100%; } }
