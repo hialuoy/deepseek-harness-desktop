@@ -36,10 +36,6 @@ impl I18n {
         if self.is_zh { "检查更新…" } else { "Check for Updates…" }
     }
 
-    fn upgrade(&self) -> &'static str {
-        if self.is_zh { "升级 dsh…" } else { "Upgrade dsh…" }
-    }
-
     fn update_available_title(&self) -> &'static str {
         if self.is_zh { "发现新版本" } else { "Update Available" }
     }
@@ -576,40 +572,29 @@ fn show_upgrade_progress(handle: &tauri::AppHandle, i18n: &I18n, result: Result<
 }
 
 fn on_menu_event(handle: &tauri::AppHandle, i18n: &I18n, id: &str) {
-    match id {
-        "check_updates" => {
-            let handle = handle.clone();
-            let i18n = i18n.clone();
-            tauri::async_runtime::spawn_blocking(move || {
-                let info = check_update();
-                if info.update_available {
-                    if ask_yes_no(
-                        &handle,
-                        i18n.update_available_title(),
-                        i18n.update_available_msg(&info.current, &info.latest),
-                    ) {
-                        let result = run_upgrade();
-                        show_upgrade_progress(&handle, &i18n, result);
-                    }
-                } else {
-                    let _ = handle
-                        .dialog()
-                        .message(i18n.up_to_date_msg(&info.current))
-                        .title(i18n.up_to_date_title())
-                        .kind(MessageDialogKind::Info)
-                        .blocking_show();
+    if id == "check_updates" {
+        let handle = handle.clone();
+        let i18n = i18n.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            let info = check_update();
+            if info.update_available {
+                if ask_yes_no(
+                    &handle,
+                    i18n.update_available_title(),
+                    i18n.update_available_msg(&info.current, &info.latest),
+                ) {
+                    let result = run_upgrade();
+                    show_upgrade_progress(&handle, &i18n, result);
                 }
-            });
-        }
-        "upgrade" => {
-            let handle = handle.clone();
-            let i18n = i18n.clone();
-            tauri::async_runtime::spawn_blocking(move || {
-                let result = run_upgrade();
-                show_upgrade_progress(&handle, &i18n, result);
-            });
-        }
-        _ => {}
+            } else {
+                let _ = handle
+                    .dialog()
+                    .message(i18n.up_to_date_msg(&info.current))
+                    .title(i18n.up_to_date_title())
+                    .kind(MessageDialogKind::Info)
+                    .blocking_show();
+            }
+        });
     }
 }
 
@@ -654,12 +639,11 @@ fn main() {
             // ── 3. App menu: update / upgrade ────────────────────────
             let i18n = (*app.state::<I18n>()).clone();
             let check_item = MenuItem::with_id(app, "check_updates", i18n.check_updates(), true, None::<&str>)?;
-            let upgrade_item = MenuItem::with_id(app, "upgrade", i18n.upgrade(), true, None::<&str>)?;
             let submenu = Submenu::with_items(
                 app,
                 "DeepSeek Harness",
                 true,
-                &[&check_item, &upgrade_item],
+                &[&check_item],
             )?;
             let menu = Menu::with_items(app, &[&submenu])?;
             app.set_menu(menu)?;
