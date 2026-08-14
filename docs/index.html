@@ -185,7 +185,7 @@
       <h1>DeepSeek Harness<br/><span class="grad">桌面版</span> Desktop</h1>
       <p class="sub">官方桌面应用 · 零依赖安装 · 轻量高效,基于系统原生 WebView,比 Electron 版省约 100MB 内存。</p>
       <div class="cta">
-        <a class="btn btn-primary" href="#download">免费下载</a>
+        <a id="hero-download" class="btn btn-primary" href="#download">免费下载</a>
         <a class="btn btn-ghost" href="https://github.com/hialuoy/deepseek-harness-desktop">查看 GitHub</a>
       </div>
       <p class="platforms">macOS · Windows · Linux</p>
@@ -370,11 +370,17 @@
         var btn = document.getElementById('detect-btn');
         var desc = document.getElementById('detect-desc');
         var matched = document.querySelector('.dl-card[data-os="' + os + '"]' + (arch ? '[data-arch="' + arch + '"]' : ''));
+        var heroBtn = document.getElementById('hero-download');
         if (matched && btn) {
-          btn.href = matched.querySelector('a').href;
+          var href = matched.querySelector('a').href;
+          btn.href = href;
           btn.textContent = '立即下载 ' + label + ' 版本';
           desc.textContent = '已为你推荐 ' + label + ' 的安装包,也可从下方列表选择其他平台。';
           banner.style.display = 'flex';
+          if (heroBtn) {
+            heroBtn.href = href;
+            heroBtn.textContent = '下载 ' + label + ' 版';
+          }
         } else if (os === 'macos') {
           btn.href = 'https://github.com/hialuoy/deepseek-harness-desktop/releases/latest';
           btn.textContent = '前往下载页选择芯片版本';
