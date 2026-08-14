@@ -317,6 +317,76 @@ fn augmented_path() -> String {
     parts.join(":")
 }
 
+/// Full HTML page for the bootstrap progress window, served over a loopback
+/// HTTP socket (see `serve_bootstrap_html`). WKWebView does not complete
+/// navigation for `about:blank` and dev builds embed no assets, so neither
+/// asset URLs nor eval-injection reliably render — a real localhost request
+/// is the same pattern the main window already uses for the dsh UI.
+const BOOTSTRAP_HTML: &str = r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>DeepSeek Harness Setup</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #1a1a2e; color: #eee; margin: 0; display: flex; align-items: center; justify-content: center; height: 100vh; }
+.wrap { width: 80%; }
+p { font-size: 15px; text-align: center; margin: 0 0 18px; }
+.bar { height: 6px; background: #2d2d4a; border-radius: 3px; overflow: hidden; }
+#fill { height: 100%; width: 0; background: #4c8dff; border-radius: 3px; transition: width .2s ease; }
+#fill.indeterminate { width: 40%; animation: slide 1.2s ease-in-out infinite; }
+@keyframes slide { 0% { margin-left: -40%; } 100% { margin-left: 100%; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p id="status">Preparing&hellip;</p>
+  <div class="bar"><div id="fill"></div></div>
+</div>
+<script>
+window.__dsbUpdate = function(state, percent) {
+  document.getElementById('status').textContent = state;
+  var fill = document.getElementById('fill');
+  if (percent === null) {
+    fill.classList.add('indeterminate');
+  } else {
+    fill.classList.remove('indeterminate');
+    fill.style.width = Math.round(percent * 100) + '%';
+  }
+};
+</script>
+</body>
+</html>"#;
+
+/// Bind a loopback HTTP socket serving BOOTSTRAP_HTML and return its URL.
+/// The listener thread lives until the process exits; every request gets the
+/// same page so reloads and retries keep working.
+fn serve_bootstrap_html() -> Result<String, String> {
+    use std::io::{Read, Write};
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")
+        .map_err(|e| format!("failed to bind bootstrap server: {}", e))?;
+    let url = format!(
+        "http://{}/",
+        listener.local_addr().map_err(|e| format!("bootstrap server addr: {}", e))?
+    );
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+            let mut buf = [0u8; 1024];
+            let _ = stream.read(&mut buf);
+            let body = BOOTSTRAP_HTML.as_bytes();
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(resp.as_bytes());
+            let _ = stream.write_all(body);
+        }
+    });
+    Ok(url)
+}
+
 /// Executable candidate names for a program: bare name on Unix; `.exe`/`.cmd`
 /// npm-style shims plus the bare name on Windows.
 fn program_candidates(name: &str, windows: bool) -> Vec<String> {
@@ -395,12 +465,11 @@ async fn ensure_toolchain(handle: &tauri::AppHandle, i18n: &I18n) -> Result<(), 
         return Ok(());
     }
 
+    let bootstrap_url = serve_bootstrap_html()?;
     let win = tauri::WebviewWindowBuilder::new(
         handle,
         "bootstrap",
-        tauri::WebviewUrl::External(
-            "tauri://localhost/bootstrap.html".parse().expect("invalid bootstrap url"),
-        ),
+        tauri::WebviewUrl::External(bootstrap_url.parse().expect("invalid bootstrap url")),
     )
     .title(i18n.bootstrap_title())
     .inner_size(520.0, 240.0)
