@@ -88,6 +88,48 @@ impl I18n {
         }
     }
 
+    fn about(&self) -> &'static str {
+        if self.is_zh { "关于 DeepSeek Harness" } else { "About DeepSeek Harness" }
+    }
+
+    fn help(&self) -> &'static str {
+        if self.is_zh { "帮助" } else { "Help" }
+    }
+
+    fn feedback(&self) -> &'static str {
+        if self.is_zh { "提交反馈" } else { "Submit Feedback" }
+    }
+
+    fn export_logs(&self) -> &'static str {
+        if self.is_zh { "导出日志" } else { "Export Logs" }
+    }
+
+    fn help_menu(&self) -> &'static str {
+        if self.is_zh { "帮助" } else { "Help" }
+    }
+
+    fn about_msg(&self, version: &str) -> String {
+        if self.is_zh {
+            format!(
+                "DeepSeek Harness 桌面端\n\n  版本:  {}\n  仓库:  https://github.com/hialuoy/deepseek-harness-desktop",
+                version
+            )
+        } else {
+            format!(
+                "DeepSeek Harness desktop\n\n  Version:  {}\n  Repo:  https://github.com/hialuoy/deepseek-harness-desktop",
+                version
+            )
+        }
+    }
+
+    fn export_logs_failed_msg(&self, e: &str) -> String {
+        if self.is_zh {
+            format!("导出日志失败:\n{}", e)
+        } else {
+            format!("Failed to export logs:\n{}", e)
+        }
+    }
+
     fn start_failed_msg(&self, detail: &str) -> String {
         if self.is_zh {
             format!(
@@ -267,6 +309,16 @@ fn find_program(name: &str) -> Option<PathBuf> {
 /// Command entry as an absolute path when resolvable, else the bare name.
 fn resolve_program(name: &str) -> String {
     find_program(name).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| name.to_string())
+}
+
+/// (program, args) to open a URL in the default browser, per platform.
+/// Unknown platforms fall back to xdg-open.
+fn open_url_command(os: &str, url: &str) -> (String, Vec<String>) {
+    match os {
+        "macos" => ("open".to_string(), vec![url.to_string()]),
+        "windows" => ("cmd".to_string(), vec!["/C".to_string(), "start".to_string(), url.to_string()]),
+        _ => ("xdg-open".to_string(), vec![url.to_string()]),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -777,5 +829,56 @@ mod tests {
     fn no_url_error_detail_is_language_neutral_ascii() {
         assert!(DSH_NO_URL_MSG.is_ascii());
         assert!(DSH_NO_URL_MSG.contains("ready URL"));
+    }
+
+    #[test]
+    fn i18n_help_menu_items_zh_and_en() {
+        let zh = I18n { is_zh: true };
+        let en = I18n { is_zh: false };
+        assert_eq!(zh.about(), "关于 DeepSeek Harness");
+        assert_eq!(en.about(), "About DeepSeek Harness");
+        assert_eq!(zh.help(), "帮助");
+        assert_eq!(en.help(), "Help");
+        assert_eq!(zh.feedback(), "提交反馈");
+        assert_eq!(en.feedback(), "Submit Feedback");
+        assert_eq!(zh.export_logs(), "导出日志");
+        assert_eq!(en.export_logs(), "Export Logs");
+        assert_eq!(zh.help_menu(), "帮助");
+        assert_eq!(en.help_menu(), "Help");
+    }
+
+    #[test]
+    fn about_msg_contains_version_and_repo() {
+        let zh = I18n { is_zh: true };
+        let msg = zh.about_msg("0.1.0");
+        assert!(msg.contains("0.1.0"));
+        assert!(msg.contains("https://github.com/hialuoy/deepseek-harness-desktop"));
+        let en_msg = I18n { is_zh: false }.about_msg("0.1.0");
+        assert!(en_msg.contains("0.1.0"));
+        assert!(en_msg.contains("https://github.com/hialuoy/deepseek-harness-desktop"));
+    }
+
+    #[test]
+    fn export_logs_failed_msg_zh_and_en() {
+        assert_eq!(
+            I18n { is_zh: true }.export_logs_failed_msg("boom"),
+            "导出日志失败:\nboom"
+        );
+        assert_eq!(
+            I18n { is_zh: false }.export_logs_failed_msg("boom"),
+            "Failed to export logs:\nboom"
+        );
+    }
+
+    #[test]
+    fn open_url_command_per_os() {
+        let url = "https://example.com";
+        assert_eq!(open_url_command("macos", url), ("open".to_string(), vec![url.to_string()]));
+        assert_eq!(
+            open_url_command("windows", url),
+            ("cmd".to_string(), vec!["/C".to_string(), "start".to_string(), url.to_string()])
+        );
+        assert_eq!(open_url_command("linux", url), ("xdg-open".to_string(), vec![url.to_string()]));
+        assert_eq!(open_url_command("freebsd", url), ("xdg-open".to_string(), vec![url.to_string()]));
     }
 }
