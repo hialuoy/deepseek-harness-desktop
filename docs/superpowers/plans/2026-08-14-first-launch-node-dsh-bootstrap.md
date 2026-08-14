@@ -18,7 +18,7 @@
 - 模式优先级:**Source > Bundled > Global > Private > Npx**。
 - `withGlobalTauri` 保持 `false`;bootstrap 窗口不加任何 IPC capability,进度用 Rust 侧 `window.eval()` 推送。
 - 对话框与状态文案必须走 `I18n` 中英双语(中文系统 `zh*` 显示中文,其余英文)。
-- 现有 9 个单元测试保持通过;新增单元测试全部通过;`cargo check`、`cargo clippy` 零告警;`cargo fmt` 格式化。
+- 现有单元测试(`cargo test` 全量)保持通过——包括执行本计划期间可能合入的其他功能(如 about/help 菜单)的测试;新增单元测试全部通过;`cargo check`、`cargo clippy` 零告警;`cargo fmt` 格式化。
 - 不引入 zip/tar 解压 crate;解压用系统自带 `tar`(macOS)/ PowerShell `Expand-Archive`(Windows)。
 - 提交信息用英文 conventional commits(feat:/fix:/docs:)。
 - 工作目录约定:`cargo` 命令均在 `src-tauri/` 下执行(用 `workdir` 参数)。
@@ -684,7 +684,7 @@ enum DshMode {
 - [ ] **Step 4: 运行全部测试确认通过**
 
 Run: `cargo test`(workdir `src-tauri`)
-Expected: 全部 PASS(现有 9 + 新增 1 + bootstrap 模块 13)。
+Expected: 全部 PASS(main.rs 现有测试 + 新增 1 + bootstrap 模块 13)。
 
 - [ ] **Step 5: 验证编译与告警**
 
@@ -948,11 +948,13 @@ async fn ensure_toolchain(handle: &tauri::AppHandle, i18n: &I18n) -> Result<(), 
 }
 ```
 
-注意:成功路径用 `win.destroy()`(跳过 CloseRequested,因为下一步会在事件处理里拦截该窗口的用户关闭);`blocking_show` 从 spawn_blocking 调用与现有升级流程模式一致(main.rs:579)。
+注意:成功路径用 `win.destroy()`(跳过 CloseRequested,因为下一步会在事件处理里拦截该窗口的用户关闭);`blocking_show` 从 spawn_blocking 调用与现有升级流程模式一致(main.rs 现有 `on_menu_event`)。
 
 - [ ] **Step 2: 重构 setup 为异步续接**
 
-把 `setup` 闭包体(main.rs:613-679)整体替换为:
+**合并注意:** 若执行本任务时 setup 中已存在其他菜单项(如已合入的 about/help 菜单 `help_menu`/`feedback`/`export_logs` 及对应 `on_menu_event` 分支),替换 setup 时必须原样保留那些菜单项与事件分支,只改动启动流程(引导 → dsh → 主窗口)的结构;下面代码中的菜单段是最小基线,按现状合并。
+
+把 `setup` 闭包体(当前 main.rs 中 `setup(|app| { ... })`)整体替换为:
 
 ```rust
         .setup(|app| {
@@ -1053,7 +1055,7 @@ Run: `cargo fmt -- --check`(workdir `src-tauri`)
 Expected: 无差异;若有,执行 `cargo fmt` 后重跑。
 
 Run: `cargo test`(workdir `src-tauri`)
-Expected: 全部 PASS(现有 9 + 新增约 16)。
+Expected: 全部 PASS(main.rs 现有测试 + 本次新增,加 bootstrap 模块 13)。
 
 - [ ] **Step 5: 手动端到端验证引导流程(macOS)**
 
