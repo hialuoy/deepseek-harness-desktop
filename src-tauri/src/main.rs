@@ -398,7 +398,9 @@ async fn ensure_toolchain(handle: &tauri::AppHandle, i18n: &I18n) -> Result<(), 
     let win = tauri::WebviewWindowBuilder::new(
         handle,
         "bootstrap",
-        tauri::WebviewUrl::App("bootstrap.html".into()),
+        tauri::WebviewUrl::External(
+            "tauri://localhost/bootstrap.html".parse().expect("invalid bootstrap url"),
+        ),
     )
     .title(i18n.bootstrap_title())
     .inner_size(520.0, 240.0)
