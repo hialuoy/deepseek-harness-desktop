@@ -141,23 +141,28 @@
     <div class="container">
       <h2>下载 / Download</h2>
       <p class="section-sub">所有平台安装包均在 GitHub Releases 提供</p>
+      <div class="auto-detect" id="auto-detect" style="display:none; background: var(--accent); color:#fff; border-radius:12px; padding:20px 24px; margin-bottom:24px;">
+        <strong id="detect-title">已检测到你的系统</strong>
+        <div id="detect-desc" style="margin-top:6px; font-size:14px; opacity:.9;"></div>
+        <a id="detect-btn" class="btn" style="display:inline-block; margin-top:14px; background:#fff; color:var(--accent); padding:10px 28px; border-radius:10px; font-weight:700; text-decoration:none;">立即下载</a>
+      </div>
       <div class="downloads">
-        <div class="dl-card">
+        <div class="dl-card" data-os="macos" data-arch="arm64">
           <div class="os">🍎 macOS</div>
           <div class="desc">Apple Silicon (M1+)<br/>aarch64</div>
           <a class="btn btn-primary" href="https://github.com/hialuoy/deepseek-harness-desktop/releases/latest/download/DeepSeek.Harness_1.0.0_aarch64.dmg">下载 DMG</a>
         </div>
-        <div class="dl-card">
+        <div class="dl-card" data-os="macos" data-arch="x64">
           <div class="os">🍎 macOS</div>
           <div class="desc">Intel<br/>x64</div>
           <a class="btn btn-primary" href="https://github.com/hialuoy/deepseek-harness-desktop/releases/latest/download/DeepSeek.Harness_1.0.0_x64.dmg">下载 DMG</a>
         </div>
-        <div class="dl-card">
+        <div class="dl-card" data-os="windows">
           <div class="os">🪟 Windows</div>
           <div class="desc">x64<br/>setup.exe / .msi</div>
           <a class="btn btn-primary" href="https://github.com/hialuoy/deepseek-harness-desktop/releases/latest/download/DeepSeek.Harness_1.0.0_x64-setup.exe">下载 EXE</a>
         </div>
-        <div class="dl-card">
+        <div class="dl-card" data-os="linux">
           <div class="os">🐧 Linux</div>
           <div class="desc">.deb / .rpm / AppImage</div>
           <a class="btn btn-primary" href="https://github.com/hialuoy/deepseek-harness-desktop/releases/latest">前往 Releases</a>
@@ -204,6 +209,61 @@
       <p><a href="https://github.com/hialuoy/deepseek-harness-desktop">GitHub</a> · <a href="https://github.com/hialuoy/deepseek-harness-desktop/issues">Issues 反馈</a> · DeepSeek Harness Desktop © 2026</p>
     </div>
   </footer>
+
+  <script>
+    (function () {
+      // Detect OS + architecture, highlight the matching card and offer a
+      // one-click download banner. Falls back to no highlight when unknown.
+      var ua = navigator.userAgent;
+      var os = null, arch = null, label = '';
+
+      if (/Macintosh|Mac OS X|macOS/i.test(ua)) {
+        os = 'macos';
+        // UA cannot distinguish Apple Silicon from Intel; use UA-CH when
+        // available, otherwise present both cards for the user to choose.
+        var uaData = navigator.userAgentData;
+        if (uaData && uaData.architecture) {
+          arch = /arm|aarch64/i.test(uaData.architecture) ? 'arm64' : 'x64';
+        }
+        label = arch ? ('macOS ' + (arch === 'arm64' ? 'Apple Silicon' : 'Intel')) : 'macOS';
+      } else if (/Windows/i.test(ua)) {
+        os = 'windows';
+        label = 'Windows x64';
+      } else if (/Linux/i.test(ua)) {
+        os = 'linux';
+        label = 'Linux';
+      }
+
+      if (os) {
+        var cards = document.querySelectorAll('.dl-card');
+        cards.forEach(function (c) {
+          var cOs = c.getAttribute('data-os');
+          var cArch = c.getAttribute('data-arch');
+          var match = cOs === os && (!cArch || !arch || cArch === arch);
+          if (match) {
+            c.style.border = '2px solid var(--accent)';
+            c.style.boxShadow = '0 0 0 4px rgba(76,141,255,.15)';
+          }
+        });
+        var banner = document.getElementById('auto-detect');
+        var btn = document.getElementById('detect-btn');
+        var desc = document.getElementById('detect-desc');
+        var matched = document.querySelector('.dl-card[data-os="' + os + '"]' + (arch ? '[data-arch="' + arch + '"]' : ''));
+        if (matched && btn) {
+          btn.href = matched.querySelector('a').href;
+          btn.textContent = '立即下载 ' + label + ' 版本';
+          desc.textContent = '已为你推荐 ' + label + ' 的安装包,也可从下方列表选择其他平台。';
+          banner.style.display = 'block';
+        } else if (os === 'macos') {
+          // Architecture unknown: point at the Releases page and let the user pick.
+          btn.href = 'https://github.com/hialuoy/deepseek-harness-desktop/releases/latest';
+          btn.textContent = '前往下载页选择芯片版本';
+          desc.textContent = '已检测到 macOS,请在下载页选择 Apple Silicon (M1+) 或 Intel 版本。';
+          banner.style.display = 'block';
+        }
+      }
+    })();
+  </script>
 
 </body>
 </html>
