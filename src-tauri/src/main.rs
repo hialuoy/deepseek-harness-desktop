@@ -175,6 +175,7 @@ enum DshMode {
     Source(PathBuf),
     Bundled(PathBuf),
     Global(PathBuf),
+    Private { node: PathBuf, dsh: PathBuf },
     Npx,
 }
 
@@ -192,6 +193,9 @@ fn detect_dsh_mode() -> DshMode {
     if let Some(dsh) = find_program("dsh") {
         return DshMode::Global(dsh);
     }
+    if let Some((node, dsh)) = bootstrap::private_node_and_dsh(&bootstrap::toolchain_dir()) {
+        return DshMode::Private { node, dsh };
+    }
     DshMode::Npx
 }
 
@@ -202,6 +206,11 @@ fn dsh_runner(mode: &DshMode, resolve: impl Fn(&str) -> String) -> (String, Vec<
         DshMode::Source(root) => (resolve("pnpm"), vec!["dsh".into()], Some(root.clone())),
         DshMode::Bundled(bin) => (resolve("node"), vec![bin.to_string_lossy().into_owned()], None),
         DshMode::Global(dsh) => (dsh.to_string_lossy().into_owned(), Vec::new(), None),
+        DshMode::Private { node, dsh } => (
+            node.to_string_lossy().into_owned(),
+            vec![dsh.to_string_lossy().into_owned()],
+            None,
+        ),
         DshMode::Npx => (resolve("npx"), vec!["--yes".into(), "@deepseek-ai/dsh".into()], None),
     }
 }
@@ -897,6 +906,18 @@ mod tests {
         let (cmd, args, cwd) = dsh_runner(&DshMode::Global(dsh.clone()), identity);
         assert_eq!(cmd, dsh.to_string_lossy().into_owned());
         assert!(args.is_empty());
+        assert_eq!(cwd, None);
+    }
+
+    #[test]
+    fn private_mode_runs_node_on_private_dsh_shim() {
+        let mode = DshMode::Private {
+            node: PathBuf::from("/x/toolchain/node-24.19.0/bin/node"),
+            dsh: PathBuf::from("/x/toolchain/node_modules/.bin/dsh"),
+        };
+        let (cmd, args, cwd) = dsh_runner(&mode, identity);
+        assert_eq!(cmd, "/x/toolchain/node-24.19.0/bin/node");
+        assert_eq!(args, vec!["/x/toolchain/node_modules/.bin/dsh".to_string()]);
         assert_eq!(cwd, None);
     }
 

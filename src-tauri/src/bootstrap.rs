@@ -23,7 +23,6 @@ pub fn home_dir() -> PathBuf {
         .unwrap_or_default()
 }
 
-#[allow(dead_code)]
 pub fn toolchain_dir() -> PathBuf {
     home_dir().join(".dsh").join("toolchain")
 }
@@ -126,7 +125,6 @@ pub fn node_version_ok(node: &Path) -> bool {
 
 /// Locate a complete private toolchain: newest node-<ver>/bin/node plus the
 /// installed dsh shim, if both exist.
-#[allow(dead_code)]
 pub fn private_node_and_dsh(toolchain: &Path) -> Option<(PathBuf, PathBuf)> {
     let mut versions: Vec<(Version, PathBuf)> = Vec::new();
     let entries = std::fs::read_dir(toolchain).ok()?;
