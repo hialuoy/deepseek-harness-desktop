@@ -2,7 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -91,6 +91,20 @@ impl I18n {
             format!("Upgrade failed:\n{}", e)
         }
     }
+
+    fn start_failed_msg(&self, detail: &str) -> String {
+        if self.is_zh {
+            format!(
+                "无法启动 dsh:\n{}\n\n请确认已安装 Node.js(>=22)并全局安装 @deepseek-ai/dsh:\n  npm install -g @deepseek-ai/dsh",
+                detail
+            )
+        } else {
+            format!(
+                "Failed to start dsh:\n{}\n\nMake sure Node.js (>=22) is installed and @deepseek-ai/dsh is installed globally:\n  npm install -g @deepseek-ai/dsh",
+                detail
+            )
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -115,27 +129,162 @@ fn find_repo_root() -> Option<PathBuf> {
     found
 }
 
-/// Resolve how to launch dsh: source mode, bundled mode, or npx fallback.
-fn resolve_dsh_command() -> (String, Vec<String>, Option<PathBuf>) {
+/// How dsh is provided, detected in priority order:
+/// source checkout > bundled app resource > global install > npx registry.
+enum DshMode {
+    Source(PathBuf),
+    Bundled(PathBuf),
+    Global(PathBuf),
+    Npx,
+}
+
+fn detect_dsh_mode() -> DshMode {
     if let Some(root) = find_repo_root() {
-        return ("pnpm".into(), vec!["dsh".into(), "web".into(), "--port".into(), "0".into()], Some(root));
+        return DshMode::Source(root);
     }
     let bundled_bin = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(|p| p.join("../Resources/app/node_modules/.bin/dsh")))
         .filter(|p| p.exists());
     if let Some(bin) = bundled_bin {
-        return ("node".into(), vec![bin.to_string_lossy().into_owned(), "web".into(), "--port".into(), "0".into()], None);
+        return DshMode::Bundled(bin);
     }
-    ("npx".into(), vec!["--yes".into(), "@deepseek-ai/dsh".into(), "web".into(), "--port".into(), "0".into()], None)
+    if let Some(dsh) = find_program("dsh") {
+        return DshMode::Global(dsh);
+    }
+    DshMode::Npx
+}
+
+/// (program, base args, cwd) for a detected mode. Program names go through
+/// `resolve` so callers can inject absolute-path resolution (or identity in tests).
+fn dsh_runner(mode: &DshMode, resolve: impl Fn(&str) -> String) -> (String, Vec<String>, Option<PathBuf>) {
+    match mode {
+        DshMode::Source(root) => (resolve("pnpm"), vec!["dsh".into()], Some(root.clone())),
+        DshMode::Bundled(bin) => (resolve("node"), vec![bin.to_string_lossy().into_owned()], None),
+        DshMode::Global(dsh) => (dsh.to_string_lossy().into_owned(), Vec::new(), None),
+        DshMode::Npx => (resolve("npx"), vec!["--yes".into(), "@deepseek-ai/dsh".into()], None),
+    }
+}
+
+/// Resolve how to launch dsh web for the detected mode.
+fn resolve_dsh_command() -> (String, Vec<String>, Option<PathBuf>) {
+    let (cmd, mut args, cwd) = dsh_runner(&detect_dsh_mode(), resolve_program);
+    args.extend(["web".into(), "--port".into(), "0".into()]);
+    (cmd, args, cwd)
+}
+
+/// Common locations where node/pnpm toolchains live, probed in order.
+/// Finder-launched apps inherit a bare PATH (`/usr/bin:/bin:/usr/sbin:/sbin`),
+/// so the toolchain must be discovered explicitly.
+fn toolchain_dirs() -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
+    dirs.extend(newest_nvm_bins(Path::new(&home)));
+    dirs.push(PathBuf::from("/usr/local/bin"));
+    #[cfg(target_os = "macos")]
+    {
+        dirs.push(PathBuf::from("/opt/homebrew/bin"));
+        dirs.push(PathBuf::from(&home).join("Library/pnpm"));
+        dirs.push(PathBuf::from("/opt/local/bin"));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        dirs.push(PathBuf::from(std::env::var("APPDATA").unwrap_or_default()).join("npm"));
+    }
+    dirs.push(PathBuf::from(&home).join(".local/bin"));
+    dirs
+}
+
+/// nvm-managed node bin dirs under ~/.nvm/versions/node, newest semver first.
+fn newest_nvm_bins(home: &Path) -> Vec<PathBuf> {
+    let nvm_root = home.join(".nvm/versions/node");
+    let Ok(entries) = std::fs::read_dir(&nvm_root) else {
+        return Vec::new();
+    };
+    sort_nvm_versions(
+        entries
+            .filter_map(|e| e.ok())
+            .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path()))
+            .collect(),
+    )
+}
+
+/// Order nvm version dirs newest-first by parsed semver; drop entries that
+/// don't parse as `vX.Y.Z` (aliases, dotfiles, stray files).
+fn sort_nvm_versions(entries: Vec<(String, PathBuf)>) -> Vec<PathBuf> {
+    let mut versions: Vec<(Version, PathBuf)> = entries
+        .into_iter()
+        .filter_map(|(name, path)| {
+            let v = name.strip_prefix('v').and_then(|v| Version::parse(v).ok())?;
+            Some((v, path))
+        })
+        .collect();
+    versions.sort_by(|a, b| b.0.cmp(&a.0));
+    versions.into_iter().map(|(_, path)| path.join("bin")).collect()
+}
+
+/// PATH for child processes: discovered toolchain dirs first, then the ambient PATH.
+fn augmented_path() -> String {
+    let mut parts: Vec<String> = toolchain_dirs()
+        .iter()
+        .map(|d| d.to_string_lossy().into_owned())
+        .collect();
+    if let Ok(path) = std::env::var("PATH") {
+        parts.push(path);
+    }
+    parts.join(":")
+}
+
+/// Executable candidate names for a program: bare name on Unix; `.exe`/`.cmd`
+/// npm-style shims plus the bare name on Windows.
+fn program_candidates(name: &str, windows: bool) -> Vec<String> {
+    if windows {
+        vec![format!("{}.exe", name), format!("{}.cmd", name), name.to_string()]
+    } else {
+        vec![name.to_string()]
+    }
+}
+
+/// Find a program by name across toolchain dirs and the ambient PATH.
+fn find_program(name: &str) -> Option<PathBuf> {
+    let windows = cfg!(windows);
+    for dir in toolchain_dirs() {
+        for cand in program_candidates(name, windows) {
+            let p = dir.join(&cand);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+    }
+    let path = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path) {
+        for cand in program_candidates(name, windows) {
+            let p = dir.join(&cand);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+    }
+    None
+}
+
+/// Command entry as an absolute path when resolvable, else the bare name.
+fn resolve_program(name: &str) -> String {
+    find_program(name).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| name.to_string())
 }
 
 // ---------------------------------------------------------------------------
 // dsh process management
 // ---------------------------------------------------------------------------
 
-/// Spawn dsh web and return once the URL line appears.
-fn start_dsh() -> (Child, String) {
+/// Language-neutral failure detail for the "no ready URL" case; the dialog
+/// wrapper (`start_failed_msg`) adds localized guidance.
+const DSH_NO_URL_MSG: &str =
+    "dsh did not print a ready URL (usually means Node.js is not installed or dsh is not installed correctly)";
+
+/// Spawn dsh web and return once the URL line appears. Failure is returned,
+/// never a panic — a missing toolchain must explain itself in a dialog.
+fn start_dsh() -> Result<(Child, String), String> {
     let (cmd, args, cwd) = resolve_dsh_command();
     println!(
         "[desktop] spawning: {} {} {}",
@@ -148,10 +297,13 @@ fn start_dsh() -> (Child, String) {
     proc.args(&args);
     proc.stdout(Stdio::piped());
     proc.stderr(Stdio::inherit());
+    proc.env("PATH", augmented_path());
     if let Some(ref dir) = cwd {
         proc.current_dir(dir);
     }
-    let mut child = proc.spawn().expect("Failed to start dsh web");
+    let mut child = proc
+        .spawn()
+        .map_err(|e| format!("failed to start `{}`: {}", cmd, e))?;
 
     let stdout = child.stdout.take().expect("stdout not piped");
     let reader = BufReader::new(stdout);
@@ -173,10 +325,10 @@ fn start_dsh() -> (Child, String) {
     if url.is_empty() {
         eprintln!("[desktop] ERROR: dsh did not print a URL");
         let _ = child.kill();
-        std::process::exit(1);
+        return Err(DSH_NO_URL_MSG.to_string());
     }
     println!("[desktop] dsh ready at {}", url);
-    (child, url)
+    Ok((child, url))
 }
 
 /// Kill the tracked dsh child process, if any.
@@ -208,24 +360,14 @@ fn ask_yes_no(handle: &tauri::AppHandle, title: &str, message: String) -> bool {
 
 /// Read the running dsh version: `dsh -V` in production, `pnpm dsh -V` in source mode.
 fn current_version() -> String {
-    let (cmd, mut args, cwd) = if find_repo_root().is_some() {
-        ("pnpm".to_string(), vec!["dsh".to_string(), "-V".to_string()], find_repo_root())
-    } else {
-        let bundled_bin = std::env::current_exe()
-            .ok()
-            .and_then(|exe| exe.parent().map(|p| p.join("../Resources/app/node_modules/.bin/dsh")))
-            .filter(|p| p.exists());
-        if let Some(bin) = bundled_bin {
-            ("node".to_string(), vec![bin.to_string_lossy().into_owned(), "-V".to_string()], None)
-        } else {
-            ("npx".to_string(), vec!["--yes".to_string(), "@deepseek-ai/dsh".to_string(), "-V".to_string()], None)
-        }
-    };
+    let (cmd, mut args, cwd) = dsh_runner(&detect_dsh_mode(), resolve_program);
+    args.push("-V".to_string());
 
     let mut proc = Command::new(&cmd);
     proc.args(&mut args);
     proc.stdout(Stdio::piped());
     proc.stderr(Stdio::null());
+    proc.env("PATH", augmented_path());
     if let Some(ref dir) = cwd {
         proc.current_dir(dir);
     }
@@ -240,10 +382,11 @@ fn current_version() -> String {
 
 /// Query the npm registry for the latest published dsh version.
 fn latest_version() -> String {
-    let output = Command::new("npm")
+    let output = Command::new(resolve_program("npm"))
         .args(["view", "@deepseek-ai/dsh", "version"])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
+        .env("PATH", augmented_path())
         .output();
     match output {
         Ok(out) => {
@@ -281,7 +424,7 @@ fn run_upgrade() -> Result<(bool, String), String> {
     let (cmd, args, cwd) = if is_source {
         let root = find_repo_root().unwrap();
         (
-            "sh".to_string(),
+            resolve_program("sh"),
             vec![
                 "-c".to_string(),
                 // --autostash stashes and reapplies local changes across the rebase,
@@ -291,7 +434,7 @@ fn run_upgrade() -> Result<(bool, String), String> {
             Some(root),
         )
     } else {
-        ("npm".to_string(), vec!["install".to_string(), "-g".to_string(), "@deepseek-ai/dsh@latest".to_string()], None)
+        (resolve_program("npm"), vec!["install".to_string(), "-g".to_string(), "@deepseek-ai/dsh@latest".to_string()], None)
     };
 
     println!("[desktop] upgrading: {} {}", cmd, args.join(" "));
@@ -300,6 +443,7 @@ fn run_upgrade() -> Result<(bool, String), String> {
     proc.args(&args);
     proc.stdout(Stdio::piped());
     proc.stderr(Stdio::piped());
+    proc.env("PATH", augmented_path());
     if let Some(ref dir) = cwd {
         proc.current_dir(dir);
     }
@@ -480,7 +624,21 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // ── 1. Start dsh web ─────────────────────────────────────
-            let (child, url) = start_dsh();
+            // A missing toolchain must explain itself in a dialog, never crash.
+            let (child, url) = match start_dsh() {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("[desktop] ERROR: {}", e);
+                    let i18n = (*app.state::<I18n>()).clone();
+                    let _ = app
+                        .dialog()
+                        .message(i18n.start_failed_msg(&e))
+                        .title("DeepSeek Harness")
+                        .kind(MessageDialogKind::Error)
+                        .blocking_show();
+                    std::process::exit(1);
+                }
+            };
             *app.state::<DshProcess>().0.lock().unwrap() = Some(child);
 
             // ── 2. Create the window, loading the dsh URL ───────────
@@ -539,11 +697,101 @@ fn main() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 if window.label() == "main" {
-                    kill_dsh(&window.app_handle());
+                    kill_dsh(window.app_handle());
                     std::process::exit(0);
                 }
             }
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn identity(name: &str) -> String {
+        name.to_string()
+    }
+
+    #[test]
+    fn nvm_versions_sort_newest_first_by_semver() {
+        let entries = vec![
+            ("v22.9.0".to_string(), PathBuf::from("a")),
+            ("v22.10.0".to_string(), PathBuf::from("b")),
+            ("v20.3.1".to_string(), PathBuf::from("c")),
+        ];
+        assert_eq!(
+            sort_nvm_versions(entries),
+            vec![
+                PathBuf::from("b/bin"),
+                PathBuf::from("a/bin"),
+                PathBuf::from("c/bin"),
+            ]
+        );
+    }
+
+    #[test]
+    fn nvm_entries_that_are_not_versions_are_dropped() {
+        let entries = vec![
+            ("default".to_string(), PathBuf::from("a")),
+            ("v22.9.0".to_string(), PathBuf::from("b")),
+            (".lts".to_string(), PathBuf::from("c")),
+        ];
+        assert_eq!(sort_nvm_versions(entries), vec![PathBuf::from("b/bin")]);
+    }
+
+    #[test]
+    fn unix_program_candidates_are_just_the_name() {
+        assert_eq!(program_candidates("node", false), vec!["node".to_string()]);
+    }
+
+    #[test]
+    fn windows_program_candidates_include_shims() {
+        assert_eq!(
+            program_candidates("npm", true),
+            vec!["npm.exe".to_string(), "npm.cmd".to_string(), "npm".to_string()]
+        );
+    }
+
+    #[test]
+    fn source_mode_runs_pnpm_dsh_in_repo_root() {
+        let root = PathBuf::from("/repo");
+        let (cmd, args, cwd) = dsh_runner(&DshMode::Source(root.clone()), identity);
+        assert_eq!(cmd, "pnpm");
+        assert_eq!(args, vec!["dsh".to_string()]);
+        assert_eq!(cwd, Some(root));
+    }
+
+    #[test]
+    fn bundled_mode_runs_node_on_bundled_bin() {
+        let bin = PathBuf::from("/app/Resources/app/node_modules/.bin/dsh");
+        let (cmd, args, cwd) = dsh_runner(&DshMode::Bundled(bin.clone()), identity);
+        assert_eq!(cmd, "node");
+        assert_eq!(args, vec![bin.to_string_lossy().into_owned()]);
+        assert_eq!(cwd, None);
+    }
+
+    #[test]
+    fn global_mode_runs_resolved_dsh_directly() {
+        let dsh = PathBuf::from("/opt/homebrew/bin/dsh");
+        let (cmd, args, cwd) = dsh_runner(&DshMode::Global(dsh.clone()), identity);
+        assert_eq!(cmd, dsh.to_string_lossy().into_owned());
+        assert!(args.is_empty());
+        assert_eq!(cwd, None);
+    }
+
+    #[test]
+    fn npx_mode_falls_back_to_registry() {
+        let (cmd, args, cwd) = dsh_runner(&DshMode::Npx, identity);
+        assert_eq!(cmd, "npx");
+        assert_eq!(args, vec!["--yes".to_string(), "@deepseek-ai/dsh".to_string()]);
+        assert_eq!(cwd, None);
+    }
+
+    #[test]
+    fn no_url_error_detail_is_language_neutral_ascii() {
+        assert!(DSH_NO_URL_MSG.is_ascii());
+        assert!(DSH_NO_URL_MSG.contains("ready URL"));
+    }
 }
