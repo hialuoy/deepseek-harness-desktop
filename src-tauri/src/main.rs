@@ -146,12 +146,10 @@ impl I18n {
         }
     }
 
-    #[allow(dead_code)]
     fn bootstrap_title(&self) -> &'static str {
         "DeepSeek Harness Setup"
     }
 
-    #[allow(dead_code)]
     fn bootstrap_step(&self, step: bootstrap::Step) -> String {
         use bootstrap::Step;
         if self.is_zh {
@@ -169,12 +167,10 @@ impl I18n {
         }
     }
 
-    #[allow(dead_code)]
     fn bootstrap_failed_title(&self) -> &'static str {
         if self.is_zh { "初始化失败" } else { "Setup Failed" }
     }
 
-    #[allow(dead_code)]
     fn bootstrap_failed_msg(&self, tail: &str) -> String {
         if self.is_zh {
             format!("安装 Node.js 与 dsh 失败。\n\n{}\n\n是否重试?(选择「No」将退出应用)", tail)
@@ -366,6 +362,99 @@ fn open_url_command(os: &str, url: &str) -> (String, Vec<String>) {
         "macos" => ("open".to_string(), vec![url.to_string()]),
         "windows" => ("cmd".to_string(), vec!["/C".to_string(), "start".to_string(), url.to_string()]),
         _ => ("xdg-open".to_string(), vec![url.to_string()]),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// First-launch bootstrap orchestration
+// ---------------------------------------------------------------------------
+
+/// Exit with an error dialog. Never returns.
+fn fail_startup(handle: &tauri::AppHandle, i18n: &I18n, detail: &str) -> ! {
+    eprintln!("[desktop] ERROR: {}", detail);
+    let _ = handle
+        .dialog()
+        .message(i18n.start_failed_msg(detail))
+        .title("DeepSeek Harness")
+        .kind(MessageDialogKind::Error)
+        .blocking_show();
+    std::process::exit(1);
+}
+
+/// Make sure a Node.js (>=22) toolchain exists: reuse a complete private
+/// toolchain or an existing system node; otherwise run the interactive
+/// bootstrap (progress window + retry dialogs).
+async fn ensure_toolchain(handle: &tauri::AppHandle, i18n: &I18n) -> Result<(), String> {
+    if bootstrap::private_node_and_dsh(&bootstrap::toolchain_dir()).is_some() {
+        return Ok(());
+    }
+    if find_program("node")
+        .map(|p| bootstrap::node_version_ok(&p))
+        .unwrap_or(false)
+    {
+        return Ok(());
+    }
+
+    let win = tauri::WebviewWindowBuilder::new(
+        handle,
+        "bootstrap",
+        tauri::WebviewUrl::App("bootstrap.html".into()),
+    )
+    .title(i18n.bootstrap_title())
+    .inner_size(520.0, 240.0)
+    .center()
+    .resizable(false)
+    .maximizable(false)
+    .minimizable(false)
+    .build()
+    .map_err(|e| format!("failed to create bootstrap window: {}", e))?;
+
+    loop {
+        let win2 = win.clone();
+        let i18n2 = i18n.clone();
+        let result = tauri::async_runtime::spawn_blocking(move || {
+            bootstrap::install(move |step, percent| {
+                let msg = serde_json::to_string(&i18n2.bootstrap_step(step)).unwrap_or_default();
+                let pct = percent
+                    .map(|p| p.to_string())
+                    .unwrap_or_else(|| "null".to_string());
+                let _ = win2.eval(format!("window.__dsbUpdate({}, {})", msg, pct));
+            })
+        })
+        .await;
+        let result = match result {
+            Ok(r) => r,
+            Err(e) => Err(format!("bootstrap thread failed: {}", e)),
+        };
+        match result {
+            Ok(()) => {
+                let _ = win.destroy();
+                return Ok(());
+            }
+            Err(e) => {
+                eprintln!("[bootstrap] ERROR: {}", e);
+                let tail = &e[e.len().saturating_sub(1500)..];
+                let handle2 = handle.clone();
+                let i18n3 = i18n.clone();
+                let tail = tail.to_string();
+                let retry = tauri::async_runtime::spawn_blocking(move || {
+                    handle2
+                        .dialog()
+                        .message(i18n3.bootstrap_failed_msg(&tail))
+                        .title(i18n3.bootstrap_failed_title())
+                        .kind(MessageDialogKind::Error)
+                        .buttons(MessageDialogButtons::YesNo)
+                        .blocking_show_with_result()
+                        == MessageDialogResult::Yes
+                })
+                .await
+                .unwrap_or(false);
+                if !retry {
+                    let _ = win.destroy();
+                    return Err("bootstrap cancelled by user".to_string());
+                }
+            }
+        }
     }
 }
 
@@ -789,70 +878,68 @@ fn main() {
         .manage(I18n::detect())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            // ── 1. Start dsh web ─────────────────────────────────────
-            // A missing toolchain must explain itself in a dialog, never crash.
-            let (child, url) = match start_dsh() {
-                Ok(v) => v,
-                Err(e) => {
+            let handle = app.handle().clone();
+            let i18n = (*app.state::<I18n>()).clone();
+            tauri::async_runtime::spawn(async move {
+                // ── 1. Toolchain (first-launch bootstrap if needed) ──
+                if let Err(e) = ensure_toolchain(&handle, &i18n).await {
                     eprintln!("[desktop] ERROR: {}", e);
-                    let i18n = (*app.state::<I18n>()).clone();
-                    let _ = app
-                        .dialog()
-                        .message(i18n.start_failed_msg(&e))
-                        .title("DeepSeek Harness")
-                        .kind(MessageDialogKind::Error)
-                        .blocking_show();
                     std::process::exit(1);
                 }
-            };
-            *app.state::<DshProcess>().0.lock().unwrap() = Some(child);
 
-            // ── 2. Create the window, loading the dsh URL ───────────
-            let _window = tauri::WebviewWindowBuilder::new(
-                app,
-                "main",
-                tauri::WebviewUrl::External(url.parse().expect("invalid URL")),
-            )
-            .title("DeepSeek Harness")
-            .inner_size(1200.0, 800.0)
-            .build()?;
+                // ── 2. Start dsh web ────────────────────────────────
+                let (child, url) = match tauri::async_runtime::spawn_blocking(start_dsh).await {
+                    Ok(Ok(v)) => v,
+                    Ok(Err(e)) => fail_startup(&handle, &i18n, &e),
+                    Err(e) => fail_startup(&handle, &i18n, &format!("task join: {}", e)),
+                };
+                *handle.state::<DshProcess>().0.lock().unwrap() = Some(child);
 
-            // ── 3. App menu: update / upgrade ────────────────────────
-            let i18n = (*app.state::<I18n>()).clone();
-            let check_item = MenuItem::with_id(app, "check_updates", i18n.check_updates(), true, None::<&str>)?;
-            let submenu = Submenu::with_items(
-                app,
-                "DeepSeek Harness",
-                true,
-                &[&check_item],
-            )?;
-            let menu = Menu::with_items(app, &[&submenu])?;
-            app.set_menu(menu)?;
+                // ── 3. Create the window, loading the dsh URL ───────
+                let _window = tauri::WebviewWindowBuilder::new(
+                    &handle,
+                    "main",
+                    tauri::WebviewUrl::External(url.parse().expect("invalid URL")),
+                )
+                .title("DeepSeek Harness")
+                .inner_size(1200.0, 800.0)
+                .build()
+                .expect("failed to build main window");
 
-            // ── 4. Auto-check for updates shortly after startup ──────
-            // Nags at most once per day per version: a dismissed prompt stays
-            // quiet until the version changes or a day passes. The manual
-            // menu item always checks immediately.
-            {
-                let handle = app.handle().clone();
-                let i18n = i18n.clone();
+                // ── 4. App menu: update / upgrade ───────────────────
+                let check_item = MenuItem::with_id(
+                    &handle,
+                    "check_updates",
+                    i18n.check_updates(),
+                    true,
+                    None::<&str>,
+                )
+                .expect("failed to build menu item");
+                let submenu =
+                    Submenu::with_items(&handle, "DeepSeek Harness", true, &[&check_item])
+                        .expect("failed to build submenu");
+                let menu = Menu::with_items(&handle, &[&submenu]).expect("failed to build menu");
+                handle.set_menu(menu).expect("failed to set menu");
+
+                // ── 5. Auto-check for updates shortly after startup ─
+                let handle2 = handle.clone();
+                let i18n2 = i18n.clone();
                 tauri::async_runtime::spawn(async move {
                     std::thread::sleep(Duration::from_secs(5));
                     let info = check_update();
                     if info.update_available
                         && should_auto_prompt(&info.latest)
                         && ask_yes_no(
-                            &handle,
-                            i18n.update_available_title(),
-                            i18n.update_available_msg(&info.current, &info.latest),
+                            &handle2,
+                            i18n2.update_available_title(),
+                            i18n2.update_available_msg(&info.current, &info.latest),
                         )
                     {
                         let result = run_upgrade();
-                        show_upgrade_progress(&handle, &i18n, result);
+                        show_upgrade_progress(&handle2, &i18n2, result);
                     }
                 });
-            }
-
+            });
             Ok(())
         })
         .on_menu_event(|app, event| {
@@ -860,6 +947,11 @@ fn main() {
             on_menu_event(app, &i18n, event.id().as_ref());
         })
         .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "bootstrap" {
+                    api.prevent_close();
+                }
+            }
             if let tauri::WindowEvent::Destroyed = event {
                 if window.label() == "main" {
                     kill_dsh(window.app_handle());
