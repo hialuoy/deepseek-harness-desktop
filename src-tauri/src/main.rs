@@ -145,6 +145,43 @@ impl I18n {
             )
         }
     }
+
+    #[allow(dead_code)]
+    fn bootstrap_title(&self) -> &'static str {
+        "DeepSeek Harness Setup"
+    }
+
+    #[allow(dead_code)]
+    fn bootstrap_step(&self, step: bootstrap::Step) -> String {
+        use bootstrap::Step;
+        if self.is_zh {
+            match step {
+                Step::Download => "正在下载 Node.js…".to_string(),
+                Step::Extract => "正在解压 Node.js…".to_string(),
+                Step::Install => "正在安装 dsh…".to_string(),
+            }
+        } else {
+            match step {
+                Step::Download => "Downloading Node.js…".to_string(),
+                Step::Extract => "Extracting Node.js…".to_string(),
+                Step::Install => "Installing dsh…".to_string(),
+            }
+        }
+    }
+
+    #[allow(dead_code)]
+    fn bootstrap_failed_title(&self) -> &'static str {
+        if self.is_zh { "初始化失败" } else { "Setup Failed" }
+    }
+
+    #[allow(dead_code)]
+    fn bootstrap_failed_msg(&self, tail: &str) -> String {
+        if self.is_zh {
+            format!("安装 Node.js 与 dsh 失败。\n\n{}\n\n是否重试?(选择「No」将退出应用)", tail)
+        } else {
+            format!("Failed to install Node.js and dsh.\n\n{}\n\nRetry? (choosing \"No\" quits the app)", tail)
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1016,5 +1053,26 @@ mod tests {
         let content = std::fs::read_to_string(&path).unwrap();
         assert_eq!(content, "first\nsecond\n");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn bootstrap_copy_is_localized_zh() {
+        let i18n = I18n { is_zh: true };
+        assert_eq!(i18n.bootstrap_title(), "DeepSeek Harness Setup");
+        assert_eq!(i18n.bootstrap_step(bootstrap::Step::Download), "正在下载 Node.js…");
+        assert_eq!(i18n.bootstrap_step(bootstrap::Step::Extract), "正在解压 Node.js…");
+        assert_eq!(i18n.bootstrap_step(bootstrap::Step::Install), "正在安装 dsh…");
+        assert_eq!(i18n.bootstrap_failed_title(), "初始化失败");
+        assert!(i18n.bootstrap_failed_msg("boom").contains("重试"));
+    }
+
+    #[test]
+    fn bootstrap_copy_is_localized_en() {
+        let i18n = I18n { is_zh: false };
+        assert_eq!(i18n.bootstrap_step(bootstrap::Step::Download), "Downloading Node.js…");
+        assert_eq!(i18n.bootstrap_step(bootstrap::Step::Extract), "Extracting Node.js…");
+        assert_eq!(i18n.bootstrap_step(bootstrap::Step::Install), "Installing dsh…");
+        assert_eq!(i18n.bootstrap_failed_title(), "Setup Failed");
+        assert!(i18n.bootstrap_failed_msg("boom").contains("Retry"));
     }
 }
