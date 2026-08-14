@@ -1,0 +1,8 @@
+{
+  "identifier": "default",
+  "description": "Default capability",
+  "windows": ["main"],
+  "permissions": [
+    "dialog:default"
+  ]
+}
