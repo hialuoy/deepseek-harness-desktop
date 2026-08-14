@@ -1326,3 +1326,8 @@ git commit -m "docs: update prerequisites for first-launch bootstrap"
 - 新电脑(macOS/Windows):双击安装包 → 首启引导窗口下载/安装 → 直接可用;后续启动秒开。
 - 已有 Node >= 22 的机器:跳过引导,行为与现在一致(Source/Bundled/Global/Npx 优先级不变,仅新增 Private 档位)。
 - 升级菜单:Private 模式下用私有 npm 升级 dsh;其他模式不变。
+
+## 实施修订记录(执行期间发现并裁定)
+
+- **Task 2**:`private_node_and_dsh` 的 `?`-in-loop 写法是计划缺陷——工具链目录中总有 `node_modules/` 等非 `node-*` 条目,`?` 会从函数返回 `None`,导致完整工具链永远检测不到。已按 skip 模式修正(评审裁定 JUSTIFIED)。
+- **Task 2**:reqwest 0.13 blocking `ClientBuilder` 没有 `read_timeout`,只有 `timeout`;计划中的 `read_timeout` 改为 `timeout`(评审裁定 JUSTIFIED)。
