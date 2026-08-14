@@ -553,10 +553,16 @@ fn export_logs(handle: &tauri::AppHandle, i18n: &I18n) {
         return;
     };
     let Ok(path) = path.into_path() else {
+        log_line("desktop", "save dialog returned a non-filesystem path; export cancelled");
         return;
     };
-    match std::fs::copy(log_path(), &path) {
-        Ok(_) => log_line("desktop", &format!("logs exported to {}", path.display())),
+    let result = if log_path().exists() {
+        std::fs::copy(log_path(), &path).map(|_| ())
+    } else {
+        std::fs::write(&path, b"")
+    };
+    match result {
+        Ok(()) => log_line("desktop", &format!("logs exported to {}", path.display())),
         Err(e) => {
             let _ = handle
                 .dialog()
