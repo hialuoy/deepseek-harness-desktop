@@ -272,6 +272,7 @@ pub fn move_into_node_dir(
 }
 
 /// Bootstrap progress states, surfaced to the UI (localized by the caller).
+#[derive(Clone, Copy)]
 pub enum Step {
     Download,
     Extract,

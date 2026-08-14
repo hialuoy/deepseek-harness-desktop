@@ -171,6 +171,16 @@ impl I18n {
         if self.is_zh { "初始化失败" } else { "Setup Failed" }
     }
 
+    /// Shown in the bootstrap window when the dsh install has been running
+    /// for a while, so the user knows the app is working, not stuck.
+    fn bootstrap_slow_msg(&self) -> String {
+        if self.is_zh {
+            "安装仍在进行,请耐心等待…(首次安装通常需要 1-2 分钟)".to_string()
+        } else {
+            "Installation is still in progress, please wait… (first install usually takes 1-2 minutes)".to_string()
+        }
+    }
+
     fn bootstrap_failed_msg(&self, tail: &str) -> String {
         if self.is_zh {
             format!("安装 Node.js 与 dsh 失败。\n\n{}\n\n是否重试?(选择「No」将退出应用)", tail)
@@ -484,12 +494,27 @@ async fn ensure_toolchain(handle: &tauri::AppHandle, i18n: &I18n) -> Result<(), 
         let win2 = win.clone();
         let i18n2 = i18n.clone();
         let result = tauri::async_runtime::spawn_blocking(move || {
+            // First time we reach the install step, arm a one-shot notice that
+            // fires if the install is still running a while later, so a slow
+            // first-time setup doesn't look like a hang.
+            let slow_armed = std::cell::Cell::new(false);
             bootstrap::install(move |step, percent| {
                 let msg = serde_json::to_string(&i18n2.bootstrap_step(step)).unwrap_or_default();
                 let pct = percent
                     .map(|p| p.to_string())
                     .unwrap_or_else(|| "null".to_string());
                 let _ = win2.eval(format!("window.__dsbUpdate({}, {})", msg, pct));
+                if matches!(&step, bootstrap::Step::Install) && !slow_armed.replace(true) {
+                    let win3 = win2.clone();
+                    let slow_msg = i18n2.bootstrap_slow_msg();
+                    tauri::async_runtime::spawn(async move {
+                        std::thread::sleep(Duration::from_secs(30));
+                        let _ = win3.eval(format!(
+                            "window.__dsbUpdate({}, null)",
+                            serde_json::to_string(&slow_msg).unwrap_or_default()
+                        ));
+                    });
+                }
             })
         })
         .await;
@@ -1382,6 +1407,7 @@ mod tests {
         assert_eq!(i18n.bootstrap_step(bootstrap::Step::Install), "正在安装 dsh…");
         assert_eq!(i18n.bootstrap_failed_title(), "初始化失败");
         assert!(i18n.bootstrap_failed_msg("boom").contains("重试"));
+        assert!(i18n.bootstrap_slow_msg().contains("耐心等待"));
     }
 
     #[test]
@@ -1392,6 +1418,7 @@ mod tests {
         assert_eq!(i18n.bootstrap_step(bootstrap::Step::Install), "Installing dsh…");
         assert_eq!(i18n.bootstrap_failed_title(), "Setup Failed");
         assert!(i18n.bootstrap_failed_msg("boom").contains("Retry"));
+        assert!(i18n.bootstrap_slow_msg().contains("please wait"));
     }
 
     #[test]
