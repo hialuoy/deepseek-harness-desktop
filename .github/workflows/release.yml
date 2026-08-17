@@ -56,7 +56,15 @@ jobs:
         with:
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v__VERSION__' }}
           releaseName: 'DeepSeek Harness v__VERSION__'
-          releaseBody: 'See the assets to download this version and install.'
+          releaseBody: |
+            ## DeepSeek Harness v__VERSION__
+
+            ### What's new / 更新内容
+            _(Auto-generated — edit this draft before publishing.)_
+
+            ### Install / 安装
+            Choose the installer for your platform below.
+            请选择对应平台的安装包。
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
