@@ -1,6 +1,6 @@
 {
   "productName": "DeepSeek Harness",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "identifier": "com.deepseek.harness",
   "build": {
     "frontendDist": "../dist",
