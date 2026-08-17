@@ -10,7 +10,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use semver::Version;
-use tauri::menu::{Menu, MenuItem, Submenu};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::Manager;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind, MessageDialogResult};
 
@@ -108,6 +108,82 @@ impl I18n {
 
     fn help_menu(&self) -> &'static str {
         if self.is_zh { "帮助" } else { "Help" }
+    }
+
+    fn edit_menu(&self) -> &'static str {
+        if self.is_zh { "编辑" } else { "Edit" }
+    }
+
+    fn undo(&self) -> &'static str {
+        if self.is_zh { "撤销" } else { "Undo" }
+    }
+
+    fn redo(&self) -> &'static str {
+        if self.is_zh { "重做" } else { "Redo" }
+    }
+
+    fn cut(&self) -> &'static str {
+        if self.is_zh { "剪切" } else { "Cut" }
+    }
+
+    fn copy(&self) -> &'static str {
+        if self.is_zh { "复制" } else { "Copy" }
+    }
+
+    fn paste(&self) -> &'static str {
+        if self.is_zh { "粘贴" } else { "Paste" }
+    }
+
+    fn select_all(&self) -> &'static str {
+        if self.is_zh { "全选" } else { "Select All" }
+    }
+
+    fn hide(&self) -> &'static str {
+        if self.is_zh { "隐藏" } else { "Hide" }
+    }
+
+    fn hide_others(&self) -> &'static str {
+        if self.is_zh { "隐藏其他" } else { "Hide Others" }
+    }
+
+    fn show_all(&self) -> &'static str {
+        if self.is_zh { "全部显示" } else { "Show All" }
+    }
+
+    fn quit(&self) -> &'static str {
+        if self.is_zh { "退出" } else { "Quit" }
+    }
+
+    fn services(&self) -> &'static str {
+        if self.is_zh { "服务" } else { "Services" }
+    }
+
+    fn file_menu(&self) -> &'static str {
+        if self.is_zh { "文件" } else { "File" }
+    }
+
+    fn view_menu(&self) -> &'static str {
+        if self.is_zh { "显示" } else { "View" }
+    }
+
+    fn enter_full_screen(&self) -> &'static str {
+        if self.is_zh { "进入全屏" } else { "Enter Full Screen" }
+    }
+
+    fn window_menu(&self) -> &'static str {
+        if self.is_zh { "窗口" } else { "Window" }
+    }
+
+    fn minimize(&self) -> &'static str {
+        if self.is_zh { "最小化" } else { "Minimize" }
+    }
+
+    fn zoom(&self) -> &'static str {
+        if self.is_zh { "缩放" } else { "Zoom" }
+    }
+
+    fn close_window(&self) -> &'static str {
+        if self.is_zh { "关闭窗口" } else { "Close Window" }
     }
 
     fn about_msg(&self, version: &str) -> String {
@@ -1127,7 +1203,7 @@ fn main() {
                 .build()
                 .expect("failed to build main window");
 
-                // ── 4. App menu: about/update + help ────────────────
+                // ── 4. App menu: about/update + standard macOS items ──
                 let about_item = MenuItem::with_id(&handle, "about", i18n.about(), true, None::<&str>)
                     .expect("failed to build menu item");
                 let check_item = MenuItem::with_id(
@@ -1142,7 +1218,26 @@ fn main() {
                     &handle,
                     "DeepSeek Harness",
                     true,
-                    &[&about_item, &check_item],
+                    &[
+                        &about_item,
+                        &check_item,
+                        &PredefinedMenuItem::separator(&handle)
+                            .expect("failed to build separator"),
+                        &PredefinedMenuItem::services(&handle, Some(i18n.services()))
+                            .expect("failed to build menu item"),
+                        &PredefinedMenuItem::separator(&handle)
+                            .expect("failed to build separator"),
+                        &PredefinedMenuItem::hide(&handle, Some(i18n.hide()))
+                            .expect("failed to build menu item"),
+                        &PredefinedMenuItem::hide_others(&handle, Some(i18n.hide_others()))
+                            .expect("failed to build menu item"),
+                        &PredefinedMenuItem::show_all(&handle, Some(i18n.show_all()))
+                            .expect("failed to build menu item"),
+                        &PredefinedMenuItem::separator(&handle)
+                            .expect("failed to build separator"),
+                        &PredefinedMenuItem::quit(&handle, Some(i18n.quit()))
+                            .expect("failed to build menu item"),
+                    ],
                 )
                 .expect("failed to build submenu");
                 let help_item = MenuItem::with_id(&handle, "help", i18n.help(), true, None::<&str>)
@@ -1160,9 +1255,77 @@ fn main() {
                     &[&help_item, &feedback_item, &export_item],
                 )
                 .expect("failed to build submenu");
-                 let menu = Menu::with_items(&handle, &[&submenu, &help_submenu])
-                     .expect("failed to build menu");
-                 handle.set_menu(menu).expect("failed to set menu");
+
+                // ── 4.5. Edit menu: restores macOS Cmd+C/Cmd+V clipboard shortcuts ──
+                let edit_submenu = Submenu::with_items(
+                    &handle,
+                    i18n.edit_menu(),
+                    true,
+                    &[
+                        &PredefinedMenuItem::undo(&handle, Some(i18n.undo()))
+                            .expect("failed to build menu item"),
+                        &PredefinedMenuItem::redo(&handle, Some(i18n.redo()))
+                            .expect("failed to build menu item"),
+                        &PredefinedMenuItem::separator(&handle)
+                            .expect("failed to build separator"),
+                        &PredefinedMenuItem::cut(&handle, Some(i18n.cut()))
+                            .expect("failed to build menu item"),
+                        &PredefinedMenuItem::copy(&handle, Some(i18n.copy()))
+                            .expect("failed to build menu item"),
+                        &PredefinedMenuItem::paste(&handle, Some(i18n.paste()))
+                            .expect("failed to build menu item"),
+                        &PredefinedMenuItem::separator(&handle)
+                            .expect("failed to build separator"),
+                        &PredefinedMenuItem::select_all(&handle, Some(i18n.select_all()))
+                            .expect("failed to build menu item"),
+                    ],
+                )
+                .expect("failed to build submenu");
+                let file_submenu = Submenu::with_items(
+                    &handle,
+                    i18n.file_menu(),
+                    true,
+                    &[&PredefinedMenuItem::close_window(&handle, Some(i18n.close_window()))
+                        .expect("failed to build menu item")],
+                )
+                .expect("failed to build submenu");
+                let view_submenu = Submenu::with_items(
+                    &handle,
+                    i18n.view_menu(),
+                    true,
+                    &[&PredefinedMenuItem::fullscreen(&handle, Some(i18n.enter_full_screen()))
+                        .expect("failed to build menu item")],
+                )
+                .expect("failed to build submenu");
+                let window_submenu = Submenu::with_items(
+                    &handle,
+                    i18n.window_menu(),
+                    true,
+                    &[
+                        &PredefinedMenuItem::minimize(&handle, Some(i18n.minimize()))
+                            .expect("failed to build menu item"),
+                        &PredefinedMenuItem::maximize(&handle, Some(i18n.zoom()))
+                            .expect("failed to build menu item"),
+                        &PredefinedMenuItem::separator(&handle)
+                            .expect("failed to build separator"),
+                        &PredefinedMenuItem::close_window(&handle, Some(i18n.close_window()))
+                            .expect("failed to build menu item"),
+                    ],
+                )
+                .expect("failed to build submenu");
+                let menu = Menu::with_items(
+                    &handle,
+                    &[
+                        &submenu,
+                        &file_submenu,
+                        &edit_submenu,
+                        &view_submenu,
+                        &window_submenu,
+                        &help_submenu,
+                    ],
+                )
+                .expect("failed to build menu");
+                handle.set_menu(menu).expect("failed to set menu");
 
                 // ── 5. Auto-check for updates shortly after startup ─
                 let handle2 = handle.clone();
@@ -1329,6 +1492,56 @@ mod tests {
         assert_eq!(en.export_logs(), "Export Logs");
         assert_eq!(zh.help_menu(), "帮助");
         assert_eq!(en.help_menu(), "Help");
+    }
+
+    #[test]
+    fn i18n_edit_menu_items_zh_and_en() {
+        let zh = I18n { is_zh: true };
+        let en = I18n { is_zh: false };
+        assert_eq!(zh.edit_menu(), "编辑");
+        assert_eq!(en.edit_menu(), "Edit");
+        assert_eq!(zh.undo(), "撤销");
+        assert_eq!(en.undo(), "Undo");
+        assert_eq!(zh.redo(), "重做");
+        assert_eq!(en.redo(), "Redo");
+        assert_eq!(zh.cut(), "剪切");
+        assert_eq!(en.cut(), "Cut");
+        assert_eq!(zh.copy(), "复制");
+        assert_eq!(en.copy(), "Copy");
+        assert_eq!(zh.paste(), "粘贴");
+        assert_eq!(en.paste(), "Paste");
+        assert_eq!(zh.select_all(), "全选");
+        assert_eq!(en.select_all(), "Select All");
+    }
+
+    #[test]
+    fn i18n_standard_menu_items_zh_and_en() {
+        let zh = I18n { is_zh: true };
+        let en = I18n { is_zh: false };
+        assert_eq!(zh.hide(), "隐藏");
+        assert_eq!(en.hide(), "Hide");
+        assert_eq!(zh.hide_others(), "隐藏其他");
+        assert_eq!(en.hide_others(), "Hide Others");
+        assert_eq!(zh.show_all(), "全部显示");
+        assert_eq!(en.show_all(), "Show All");
+        assert_eq!(zh.quit(), "退出");
+        assert_eq!(en.quit(), "Quit");
+        assert_eq!(zh.services(), "服务");
+        assert_eq!(en.services(), "Services");
+        assert_eq!(zh.file_menu(), "文件");
+        assert_eq!(en.file_menu(), "File");
+        assert_eq!(zh.view_menu(), "显示");
+        assert_eq!(en.view_menu(), "View");
+        assert_eq!(zh.enter_full_screen(), "进入全屏");
+        assert_eq!(en.enter_full_screen(), "Enter Full Screen");
+        assert_eq!(zh.window_menu(), "窗口");
+        assert_eq!(en.window_menu(), "Window");
+        assert_eq!(zh.minimize(), "最小化");
+        assert_eq!(en.minimize(), "Minimize");
+        assert_eq!(zh.zoom(), "缩放");
+        assert_eq!(en.zoom(), "Zoom");
+        assert_eq!(zh.close_window(), "关闭窗口");
+        assert_eq!(en.close_window(), "Close Window");
     }
 
     #[test]
