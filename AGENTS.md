@@ -11,12 +11,15 @@ DeepSeek Harness 桌面壳(Route A · Tauri v2)。独立 git 仓库(`hialuoy/dee
 - dsh 模式探测优先级:Source(pnpm-workspace.yaml 向上最多 5 层)> Bundled(`Resources/app`)> Global > Npx。升级命令随模式不同:Source 模式在仓库根跑 `git pull --rebase --autostash && pnpm install && pnpm run build`,其余 `npm install -g @deepseek-ai/dsh@latest`。
 - Finder 启动的 app PATH 极简,因此 `toolchain_dirs()` 显式探测 nvm、`/usr/local/bin`、`/opt/homebrew/bin` 等;Windows 程序名需带 `.exe`/`.cmd` shim。
 - i18n:所有用户可见文案硬编码在 `main.rs` 的 `I18n` 结构体,中英双语(按 `sys-locale` 的 `zh*` 判断)。新增文案必须双语,并补对应单元测试。
-- 运行时状态:`~/.dsh/desktop.log`(超 1MB 轮转为 `desktop.old.log`)、`~/.dsh/desktop-update-state.json`(同一版本每天最多自动弹一次更新提示)。
+- 运行时状态:`~/.dsh/desktop.log`(超 1MB 轮转为 `desktop.old.log`)、`~/.dsh/desktop-update-state.json`(dsh 与应用各自记录,同一目标同一版本每天最多自动弹一次更新提示)。
+- Windows 子进程:所有 spawn 一律带 `CREATE_NO_WINDOW`(0x08000000)抑制控制台窗口;Windows 下 dsh 以 `dsh.cmd` shim 运行(见 `bootstrap::dsh_shim_name()`),私有 node bin 目录置于 PATH 最前,防止旧版 node 抢先被解析。
+- 应用自更新:除 dsh 升级外,桌面程序自身通过 `tauri-plugin-updater` 自更新。「检查更新…」菜单与启动 5 秒自动检查会同时检查 dsh 与应用;更新清单 `latest.json` 指向 GitHub Release 资产,配置在 `tauri.conf.json` 的 `plugins.updater`(含签名公钥、端点,`windows.installMode = "passive"`),版本号取自 `env!("CARGO_PKG_VERSION")`。
 
 ## 常用命令
 
 - `pnpm dev` / `pnpm build`(package.json 脚本,分别映射 `cargo tauri dev/build`);仓库内无 lockfile,CI 用 `npm install` + `npx tauri build --no-bundle`。
-- cargo 命令都在 `src-tauri/` 目录下执行。验证顺序:`cargo test`(17 个测试全在 main.rs 内)→ `cargo check` → `cargo clippy`(要求零告警)→ `cargo fmt`。
+- cargo 命令都在 `src-tauri/` 目录下执行。验证顺序:`cargo test`(42 个测试,在 `main.rs` 与 `bootstrap.rs` 内)→ `cargo check` → `cargo clippy`(要求零告警)→ `cargo fmt`。
+- 自更新签名构建:`tauri build` 生成 `latest.json` 需设置 `TAURI_SIGNING_PRIVATE_KEY`(私钥**内容**,不是路径)与 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`(私钥带密码时);私钥在 `~/.tauri/dsh-desktop.key`,**绝不入库**。
 - 版本号三处必须一致,否则 `cargo tauri build` 失败:`package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`。
 - 在 monorepo 内运行 `pnpm dev` 会命中 Source 模式,要求父仓库已 `pnpm install && pnpm run build`。
 
@@ -24,3 +27,5 @@ DeepSeek Harness 桌面壳(Route A · Tauri v2)。独立 git 仓库(`hialuoy/dee
 
 - 特性开发先写规格再写实施计划,存于 `docs/superpowers/specs/` 和 `docs/superpowers/plans/`;实现前先读对应 plan(其中可能有未完成的任务)。
 - CI:push/PR 跑 `build.yml` 三平台编译验证。发布:推 `v*` 标签或手动触发 release workflow(手动时版本号取 package.json),产物是 GitHub Release 草稿,需在 Releases 页手动发布。
+- 自更新发布:签名私钥存 GitHub secret(`TAURI_SIGNING_PRIVATE_KEY`/`TAURI_SIGNING_PRIVATE_KEY_PASSWORD`);release workflow 需把签名的 `latest.json` 与各平台安装包一并作为 Release 资产上传,否则应用内检查更新会失败。
+- 已知问题:Windows 关闭应用后可能残留孤儿 `node.exe` 进程(`kill_dsh()` 只结束直接包装的 `cmd.exe`,dsh 的 node 服务进程未被连带结束)。
