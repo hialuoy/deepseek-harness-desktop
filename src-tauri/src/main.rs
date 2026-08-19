@@ -12,7 +12,10 @@ use std::time::Duration;
 use semver::Version;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::Manager;
-use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind, MessageDialogResult};
+use tauri_plugin_dialog::{
+    DialogExt, MessageDialogButtons, MessageDialogKind, MessageDialogResult,
+};
+use tauri_plugin_updater::UpdaterExt;
 
 /// Wrapper so we can store the dsh child process in Tauri managed state.
 struct DshProcess(Mutex<Option<Child>>);
@@ -35,24 +38,43 @@ impl I18n {
     }
 
     fn check_updates(&self) -> &'static str {
-        if self.is_zh { "检查更新…" } else { "Check for Updates…" }
+        if self.is_zh {
+            "检查更新…"
+        } else {
+            "Check for Updates…"
+        }
     }
 
     fn update_available_title(&self) -> &'static str {
-        if self.is_zh { "发现新版本" } else { "Update Available" }
+        if self.is_zh {
+            "发现新版本"
+        } else {
+            "Update Available"
+        }
     }
 
     fn up_to_date_title(&self) -> &'static str {
-        if self.is_zh { "已是最新版本" } else { "Up to Date" }
+        if self.is_zh {
+            "已是最新版本"
+        } else {
+            "Up to Date"
+        }
     }
 
     fn upgrade_title(&self) -> &'static str {
-        if self.is_zh { "升级 dsh" } else { "Upgrade dsh" }
+        if self.is_zh {
+            "升级 dsh"
+        } else {
+            "Upgrade dsh"
+        }
     }
 
     fn update_available_msg(&self, current: &str, latest: &str) -> String {
         if self.is_zh {
-            format!("发现 dsh 新版本。\n\n  当前版本:  {}\n  最新版本:  {}\n\n立即升级?", current, latest)
+            format!(
+                "发现 dsh 新版本。\n\n  当前版本:  {}\n  最新版本:  {}\n\n立即升级?",
+                current, latest
+            )
         } else {
             format!("A new version of dsh is available.\n\n  Current:  {}\n  Latest:   {}\n\nUpgrade now?", current, latest)
         }
@@ -63,6 +85,44 @@ impl I18n {
             format!("dsh 已是最新版本({})。", current)
         } else {
             format!("dsh is up to date (version {}).", current)
+        }
+    }
+
+    fn app_update_title(&self) -> &'static str {
+        if self.is_zh {
+            "更新 DeepSeek Harness"
+        } else {
+            "Update DeepSeek Harness"
+        }
+    }
+
+    fn app_update_msg(&self, current: &str, latest: &str) -> String {
+        if self.is_zh {
+            format!(
+                "发现 DeepSeek Harness 新版本。\n\n  当前版本:  {}\n  最新版本:  {}\n\n是否下载并安装?",
+                current, latest
+            )
+        } else {
+            format!(
+                "A new version of DeepSeek Harness is available.\n\n  Current:  {}\n  Latest:   {}\n\nDownload and install now?",
+                current, latest
+            )
+        }
+    }
+
+    fn app_up_to_date_msg(&self, current: &str) -> String {
+        if self.is_zh {
+            format!("DeepSeek Harness 已是最新版本({})。", current)
+        } else {
+            format!("DeepSeek Harness is up to date (version {}).", current)
+        }
+    }
+
+    fn app_update_failed_msg(&self, e: &str) -> String {
+        if self.is_zh {
+            format!("应用更新失败:\n{}", e)
+        } else {
+            format!("App update failed:\n{}", e)
         }
     }
 
@@ -91,99 +151,195 @@ impl I18n {
     }
 
     fn about(&self) -> &'static str {
-        if self.is_zh { "关于 DeepSeek Harness" } else { "About DeepSeek Harness" }
+        if self.is_zh {
+            "关于 DeepSeek Harness"
+        } else {
+            "About DeepSeek Harness"
+        }
     }
 
     fn help(&self) -> &'static str {
-        if self.is_zh { "帮助" } else { "Help" }
+        if self.is_zh {
+            "帮助"
+        } else {
+            "Help"
+        }
     }
 
     fn feedback(&self) -> &'static str {
-        if self.is_zh { "提交反馈" } else { "Submit Feedback" }
+        if self.is_zh {
+            "提交反馈"
+        } else {
+            "Submit Feedback"
+        }
     }
 
     fn export_logs(&self) -> &'static str {
-        if self.is_zh { "导出日志" } else { "Export Logs" }
+        if self.is_zh {
+            "导出日志"
+        } else {
+            "Export Logs"
+        }
     }
 
     fn help_menu(&self) -> &'static str {
-        if self.is_zh { "帮助" } else { "Help" }
+        if self.is_zh {
+            "帮助"
+        } else {
+            "Help"
+        }
     }
 
     fn edit_menu(&self) -> &'static str {
-        if self.is_zh { "编辑" } else { "Edit" }
+        if self.is_zh {
+            "编辑"
+        } else {
+            "Edit"
+        }
     }
 
     fn undo(&self) -> &'static str {
-        if self.is_zh { "撤销" } else { "Undo" }
+        if self.is_zh {
+            "撤销"
+        } else {
+            "Undo"
+        }
     }
 
     fn redo(&self) -> &'static str {
-        if self.is_zh { "重做" } else { "Redo" }
+        if self.is_zh {
+            "重做"
+        } else {
+            "Redo"
+        }
     }
 
     fn cut(&self) -> &'static str {
-        if self.is_zh { "剪切" } else { "Cut" }
+        if self.is_zh {
+            "剪切"
+        } else {
+            "Cut"
+        }
     }
 
     fn copy(&self) -> &'static str {
-        if self.is_zh { "复制" } else { "Copy" }
+        if self.is_zh {
+            "复制"
+        } else {
+            "Copy"
+        }
     }
 
     fn paste(&self) -> &'static str {
-        if self.is_zh { "粘贴" } else { "Paste" }
+        if self.is_zh {
+            "粘贴"
+        } else {
+            "Paste"
+        }
     }
 
     fn select_all(&self) -> &'static str {
-        if self.is_zh { "全选" } else { "Select All" }
+        if self.is_zh {
+            "全选"
+        } else {
+            "Select All"
+        }
     }
 
     fn hide(&self) -> &'static str {
-        if self.is_zh { "隐藏" } else { "Hide" }
+        if self.is_zh {
+            "隐藏"
+        } else {
+            "Hide"
+        }
     }
 
     fn hide_others(&self) -> &'static str {
-        if self.is_zh { "隐藏其他" } else { "Hide Others" }
+        if self.is_zh {
+            "隐藏其他"
+        } else {
+            "Hide Others"
+        }
     }
 
     fn show_all(&self) -> &'static str {
-        if self.is_zh { "全部显示" } else { "Show All" }
+        if self.is_zh {
+            "全部显示"
+        } else {
+            "Show All"
+        }
     }
 
     fn quit(&self) -> &'static str {
-        if self.is_zh { "退出" } else { "Quit" }
+        if self.is_zh {
+            "退出"
+        } else {
+            "Quit"
+        }
     }
 
     fn services(&self) -> &'static str {
-        if self.is_zh { "服务" } else { "Services" }
+        if self.is_zh {
+            "服务"
+        } else {
+            "Services"
+        }
     }
 
     fn file_menu(&self) -> &'static str {
-        if self.is_zh { "文件" } else { "File" }
+        if self.is_zh {
+            "文件"
+        } else {
+            "File"
+        }
     }
 
     fn view_menu(&self) -> &'static str {
-        if self.is_zh { "显示" } else { "View" }
+        if self.is_zh {
+            "显示"
+        } else {
+            "View"
+        }
     }
 
     fn enter_full_screen(&self) -> &'static str {
-        if self.is_zh { "进入全屏" } else { "Enter Full Screen" }
+        if self.is_zh {
+            "进入全屏"
+        } else {
+            "Enter Full Screen"
+        }
     }
 
     fn window_menu(&self) -> &'static str {
-        if self.is_zh { "窗口" } else { "Window" }
+        if self.is_zh {
+            "窗口"
+        } else {
+            "Window"
+        }
     }
 
     fn minimize(&self) -> &'static str {
-        if self.is_zh { "最小化" } else { "Minimize" }
+        if self.is_zh {
+            "最小化"
+        } else {
+            "Minimize"
+        }
     }
 
     fn zoom(&self) -> &'static str {
-        if self.is_zh { "缩放" } else { "Zoom" }
+        if self.is_zh {
+            "缩放"
+        } else {
+            "Zoom"
+        }
     }
 
     fn close_window(&self) -> &'static str {
-        if self.is_zh { "关闭窗口" } else { "Close Window" }
+        if self.is_zh {
+            "关闭窗口"
+        } else {
+            "Close Window"
+        }
     }
 
     fn about_msg(&self, version: &str) -> String {
@@ -244,7 +400,11 @@ impl I18n {
     }
 
     fn bootstrap_failed_title(&self) -> &'static str {
-        if self.is_zh { "初始化失败" } else { "Setup Failed" }
+        if self.is_zh {
+            "初始化失败"
+        } else {
+            "Setup Failed"
+        }
     }
 
     /// Shown in the bootstrap window when the dsh install has been running
@@ -259,7 +419,10 @@ impl I18n {
 
     fn bootstrap_failed_msg(&self, tail: &str) -> String {
         if self.is_zh {
-            format!("安装 Node.js 与 dsh 失败。\n\n{}\n\n是否重试?(选择「No」将退出应用)", tail)
+            format!(
+                "安装 Node.js 与 dsh 失败。\n\n{}\n\n是否重试?(选择「No」将退出应用)",
+                tail
+            )
         } else {
             format!("Failed to install Node.js and dsh.\n\n{}\n\nRetry? (choosing \"No\" quits the app)", tail)
         }
@@ -304,7 +467,10 @@ fn detect_dsh_mode() -> DshMode {
     }
     let bundled_bin = std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(|p| p.join("../Resources/app/node_modules/.bin/dsh")))
+        .and_then(|exe| {
+            exe.parent()
+                .map(|p| p.join("../Resources/app/node_modules/.bin/dsh"))
+        })
         .filter(|p| p.exists());
     if let Some(bin) = bundled_bin {
         return DshMode::Bundled(bin);
@@ -320,17 +486,37 @@ fn detect_dsh_mode() -> DshMode {
 
 /// (program, base args, cwd) for a detected mode. Program names go through
 /// `resolve` so callers can inject absolute-path resolution (or identity in tests).
-fn dsh_runner(mode: &DshMode, resolve: impl Fn(&str) -> String) -> (String, Vec<String>, Option<PathBuf>) {
+fn dsh_runner(
+    mode: &DshMode,
+    resolve: impl Fn(&str) -> String,
+) -> (String, Vec<String>, Option<PathBuf>) {
     match mode {
         DshMode::Source(root) => (resolve("pnpm"), vec!["dsh".into()], Some(root.clone())),
-        DshMode::Bundled(bin) => (resolve("node"), vec![bin.to_string_lossy().into_owned()], None),
-        DshMode::Global(dsh) => (dsh.to_string_lossy().into_owned(), Vec::new(), None),
-        DshMode::Private { node, dsh } => (
-            node.to_string_lossy().into_owned(),
-            vec![dsh.to_string_lossy().into_owned()],
+        DshMode::Bundled(bin) => (
+            resolve("node"),
+            vec![bin.to_string_lossy().into_owned()],
             None,
         ),
-        DshMode::Npx => (resolve("npx"), vec!["--yes".into(), "@deepseek-ai/dsh".into()], None),
+        DshMode::Global(dsh) => (dsh.to_string_lossy().into_owned(), Vec::new(), None),
+        DshMode::Private { node, dsh } => {
+            if cfg!(windows) {
+                // On Windows `dsh` is the npm `.cmd` shim; run it directly so
+                // Rust wraps it in cmd.exe. Running it through node would fail
+                // because the extensionless shim is a POSIX shell script.
+                (dsh.to_string_lossy().into_owned(), Vec::new(), None)
+            } else {
+                (
+                    node.to_string_lossy().into_owned(),
+                    vec![dsh.to_string_lossy().into_owned()],
+                    None,
+                )
+            }
+        }
+        DshMode::Npx => (
+            resolve("npx"),
+            vec!["--yes".into(), "@deepseek-ai/dsh".into()],
+            None,
+        ),
     }
 }
 
@@ -346,7 +532,9 @@ fn resolve_dsh_command() -> (String, Vec<String>, Option<PathBuf>) {
 /// so the toolchain must be discovered explicitly.
 fn toolchain_dirs() -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
-    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_default();
     dirs.extend(newest_nvm_bins(Path::new(&home)));
     dirs.push(PathBuf::from("/usr/local/bin"));
     #[cfg(target_os = "macos")]
@@ -383,24 +571,41 @@ fn sort_nvm_versions(entries: Vec<(String, PathBuf)>) -> Vec<PathBuf> {
     let mut versions: Vec<(Version, PathBuf)> = entries
         .into_iter()
         .filter_map(|(name, path)| {
-            let v = name.strip_prefix('v').and_then(|v| Version::parse(v).ok())?;
+            let v = name
+                .strip_prefix('v')
+                .and_then(|v| Version::parse(v).ok())?;
             Some((v, path))
         })
         .collect();
     versions.sort_by(|a, b| b.0.cmp(&a.0));
-    versions.into_iter().map(|(_, path)| path.join("bin")).collect()
+    versions
+        .into_iter()
+        .map(|(_, path)| path.join("bin"))
+        .collect()
 }
 
-/// PATH for child processes: discovered toolchain dirs first, then the ambient PATH.
+/// PATH for child processes: private toolchain node bin first, then the
+/// discovered toolchain dirs, then the ambient PATH.
 fn augmented_path() -> String {
-    let mut parts: Vec<String> = toolchain_dirs()
-        .iter()
-        .map(|d| d.to_string_lossy().into_owned())
-        .collect();
+    let sep = if cfg!(windows) { ";" } else { ":" };
+    let mut parts: Vec<String> = Vec::new();
+    // Private node bin FIRST: npm `.cmd` shims resolve `node` by name, and in
+    // private mode this is the only node guaranteed to be >=22. A stale global
+    // or nvm node (the <22 version that triggered bootstrap) must not shadow it.
+    parts.extend(
+        bootstrap::private_node_bin_dirs(&bootstrap::toolchain_dir())
+            .iter()
+            .map(|d| d.to_string_lossy().into_owned()),
+    );
+    parts.extend(
+        toolchain_dirs()
+            .iter()
+            .map(|d| d.to_string_lossy().into_owned()),
+    );
     if let Ok(path) = std::env::var("PATH") {
         parts.push(path);
     }
-    parts.join(":")
+    parts.join(sep)
 }
 
 /// Full HTML page for the bootstrap progress window, served over a loopback
@@ -453,7 +658,9 @@ fn serve_bootstrap_html() -> Result<String, String> {
         .map_err(|e| format!("failed to bind bootstrap server: {}", e))?;
     let url = format!(
         "http://{}/",
-        listener.local_addr().map_err(|e| format!("bootstrap server addr: {}", e))?
+        listener
+            .local_addr()
+            .map_err(|e| format!("bootstrap server addr: {}", e))?
     );
     std::thread::spawn(move || {
         for stream in listener.incoming() {
@@ -477,7 +684,11 @@ fn serve_bootstrap_html() -> Result<String, String> {
 /// npm-style shims plus the bare name on Windows.
 fn program_candidates(name: &str, windows: bool) -> Vec<String> {
     if windows {
-        vec![format!("{}.exe", name), format!("{}.cmd", name), name.to_string()]
+        vec![
+            format!("{}.exe", name),
+            format!("{}.cmd", name),
+            name.to_string(),
+        ]
     } else {
         vec![name.to_string()]
     }
@@ -508,7 +719,9 @@ fn find_program(name: &str) -> Option<PathBuf> {
 
 /// Command entry as an absolute path when resolvable, else the bare name.
 fn resolve_program(name: &str) -> String {
-    find_program(name).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| name.to_string())
+    find_program(name)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| name.to_string())
 }
 
 /// (program, args) to open a URL in the default browser, per platform.
@@ -516,7 +729,10 @@ fn resolve_program(name: &str) -> String {
 fn open_url_command(os: &str, url: &str) -> (String, Vec<String>) {
     match os {
         "macos" => ("open".to_string(), vec![url.to_string()]),
-        "windows" => ("cmd".to_string(), vec!["/C".to_string(), "start".to_string(), url.to_string()]),
+        "windows" => (
+            "cmd".to_string(),
+            vec!["/C".to_string(), "start".to_string(), url.to_string()],
+        ),
         _ => ("xdg-open".to_string(), vec![url.to_string()]),
     }
 }
@@ -649,7 +865,9 @@ fn start_dsh() -> Result<(Child, String), String> {
             "spawning: {} {} {}",
             cmd,
             args.join(" "),
-            cwd.as_ref().map(|d| format!("(cwd: {})", d.display())).unwrap_or_default()
+            cwd.as_ref()
+                .map(|d| format!("(cwd: {})", d.display()))
+                .unwrap_or_default()
         ),
     );
 
@@ -658,6 +876,7 @@ fn start_dsh() -> Result<(Child, String), String> {
     proc.stdout(Stdio::piped());
     proc.stderr(Stdio::inherit());
     proc.env("PATH", augmented_path());
+    bootstrap::hide_console(&mut proc);
     if let Some(ref dir) = cwd {
         proc.current_dir(dir);
     }
@@ -728,6 +947,7 @@ fn current_version() -> String {
     proc.stdout(Stdio::piped());
     proc.stderr(Stdio::null());
     proc.env("PATH", augmented_path());
+    bootstrap::hide_console(&mut proc);
     if let Some(ref dir) = cwd {
         proc.current_dir(dir);
     }
@@ -776,16 +996,21 @@ fn latest_version() -> String {
             ],
         ),
     };
-    let output = Command::new(&cmd)
-        .args(&args)
+    let mut proc = Command::new(&cmd);
+    proc.args(&args)
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
-        .env("PATH", augmented_path())
-        .output();
+        .env("PATH", augmented_path());
+    bootstrap::hide_console(&mut proc);
+    let output = proc.output();
     match output {
         Ok(out) => {
             let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if text.is_empty() { "unknown".to_string() } else { text }
+            if text.is_empty() {
+                "unknown".to_string()
+            } else {
+                text
+            }
         }
         Err(_) => "unknown".to_string(),
     }
@@ -804,8 +1029,42 @@ fn check_update() -> UpdateInfo {
         (Ok(c), Ok(l)) => l > c,
         _ => false,
     };
-    log_line("desktop", &format!("version check: current={} latest={}", current, latest));
-    UpdateInfo { current, latest, update_available }
+    log_line(
+        "desktop",
+        &format!("version check: current={} latest={}", current, latest),
+    );
+    UpdateInfo {
+        current,
+        latest,
+        update_available,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Desktop app self-update
+// ---------------------------------------------------------------------------
+
+/// Check the configured updater endpoint for a newer desktop-app release.
+/// Returns the parsed `Update` when available; `None` when already current.
+async fn check_app_update(
+    handle: &tauri::AppHandle,
+) -> Result<Option<tauri_plugin_updater::Update>, String> {
+    let updater = handle
+        .updater()
+        .map_err(|e| format!("updater init failed: {}", e))?;
+    updater
+        .check()
+        .await
+        .map_err(|e| format!("update check failed: {}", e))
+}
+
+/// Download, verify and install an app update. Progress is shown by the
+/// installer itself (Windows `passive` mode opens a small progress window).
+async fn install_app_update(update: tauri_plugin_updater::Update) -> Result<(), String> {
+    update
+        .download_and_install(|_chunk, _total| {}, || {})
+        .await
+        .map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -857,10 +1116,13 @@ fn run_upgrade() -> Result<(bool, String), String> {
     proc.stdout(Stdio::piped());
     proc.stderr(Stdio::piped());
     proc.env("PATH", augmented_path());
+    bootstrap::hide_console(&mut proc);
     if let Some(ref dir) = cwd {
         proc.current_dir(dir);
     }
-    let mut child = proc.spawn().map_err(|e| format!("failed to spawn upgrade: {}", e))?;
+    let mut child = proc
+        .spawn()
+        .map_err(|e| format!("failed to spawn upgrade: {}", e))?;
 
     let mut output = String::new();
     let stdout = child.stdout.take().expect("stdout not piped");
@@ -901,7 +1163,10 @@ fn open_url(url: &str) {
         "linux"
     };
     let (cmd, args) = open_url_command(os, url);
-    match Command::new(&cmd).args(&args).spawn() {
+    let mut proc = Command::new(&cmd);
+    proc.args(&args);
+    bootstrap::hide_console(&mut proc);
+    match proc.spawn() {
         Ok(_) => log_line("desktop", &format!("opening {}", url)),
         Err(e) => log_line("desktop", &format!("failed to open {}: {}", url, e)),
     }
@@ -911,11 +1176,19 @@ fn open_url(url: &str) {
 /// Cancellation is a no-op; copy failure shows an error dialog.
 fn export_logs(handle: &tauri::AppHandle, i18n: &I18n) {
     let default = export_filename(now_unix_secs());
-    let Some(path) = handle.dialog().file().set_file_name(&default).blocking_save_file() else {
+    let Some(path) = handle
+        .dialog()
+        .file()
+        .set_file_name(&default)
+        .blocking_save_file()
+    else {
         return;
     };
     let Ok(path) = path.into_path() else {
-        log_line("desktop", "save dialog returned a non-filesystem path; export cancelled");
+        log_line(
+            "desktop",
+            "save dialog returned a non-filesystem path; export cancelled",
+        );
         return;
     };
     let result = if log_path().exists() {
@@ -944,7 +1217,9 @@ fn clean_output(output: &str) -> String {
         .lines()
         .filter(|line| {
             let l = line.trim();
-            if l.is_empty() { return false; }
+            if l.is_empty() {
+                return false;
+            }
             !l.contains(" WARN ")
                 && !l.contains("deprecated")
                 && !l.contains("PLUGIN_TIMINGS")
@@ -966,7 +1241,9 @@ fn clean_output(output: &str) -> String {
 
 /// Per-user dsh config dir (`~/.dsh`), created on demand by writers.
 fn dsh_dir() -> PathBuf {
-    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default();
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_default();
     PathBuf::from(home).join(".dsh")
 }
 
@@ -1005,7 +1282,10 @@ fn append_log_line(path: &Path, line: &str) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
     writeln!(f, "{}", line)
 }
 
@@ -1056,14 +1336,23 @@ fn export_filename(secs: i64) -> String {
 struct PromptState {
     last_prompted_version: String,
     last_prompted_at: u64,
+    last_app_prompted_version: String,
+    last_app_prompted_at: u64,
 }
 
-/// Decide whether the startup auto-check may prompt for this latest version:
-/// false when the same version was already offered within the last 24 hours.
-/// Records the prompt attempt before returning true.
-fn should_auto_prompt(latest: &str) -> bool {
+/// Pure 24h dedup decision (extracted for testability): true when `latest`
+/// differs from the recorded version or the record is stale.
+fn should_prompt_given(recorded_version: &str, recorded_at: u64, latest: &str, now: u64) -> bool {
+    recorded_version != latest || now.saturating_sub(recorded_at) >= 24 * 3600
+}
+
+/// Decide whether the startup auto-check may prompt for this version of dsh
+/// (`is_app == false`) or the desktop app (`is_app == true`): false when the
+/// same version was already offered within the last 24 hours. Records the
+/// prompt attempt before returning true.
+fn should_auto_prompt(latest: &str, is_app: bool) -> bool {
     let path = prompt_state_path();
-    let state: PromptState = std::fs::read_to_string(&path)
+    let mut state: PromptState = std::fs::read_to_string(&path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
@@ -1071,14 +1360,26 @@ fn should_auto_prompt(latest: &str) -> bool {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or_default();
-    if state.last_prompted_version == latest && now.saturating_sub(state.last_prompted_at) < 24 * 3600 {
+    let (last_version, last_at) = if is_app {
+        (
+            &mut state.last_app_prompted_version,
+            &mut state.last_app_prompted_at,
+        )
+    } else {
+        (
+            &mut state.last_prompted_version,
+            &mut state.last_prompted_at,
+        )
+    };
+    if !should_prompt_given(last_version, *last_at, latest, now) {
         return false;
     }
-    let next = PromptState { last_prompted_version: latest.to_string(), last_prompted_at: now };
+    *last_version = latest.to_string();
+    *last_at = now;
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let _ = std::fs::write(&path, serde_json::to_string(&next).unwrap_or_default());
+    let _ = std::fs::write(&path, serde_json::to_string(&state).unwrap_or_default());
     true
 }
 
@@ -1086,11 +1387,16 @@ fn should_auto_prompt(latest: &str) -> bool {
 // Menu actions
 // ---------------------------------------------------------------------------
 
-fn show_upgrade_progress(handle: &tauri::AppHandle, i18n: &I18n, result: Result<(bool, String), String>) {
+fn show_upgrade_progress(
+    handle: &tauri::AppHandle,
+    i18n: &I18n,
+    result: Result<(bool, String), String>,
+) {
     let (ok, output) = match result {
         Ok(v) => v,
         Err(e) => {
-            let _ = handle.dialog()
+            let _ = handle
+                .dialog()
                 .message(i18n.upgrade_error_msg(&e))
                 .title(i18n.upgrade_title())
                 .kind(MessageDialogKind::Error)
@@ -1140,6 +1446,7 @@ fn on_menu_event(handle: &tauri::AppHandle, i18n: &I18n, id: &str) {
             let handle = handle.clone();
             let i18n = i18n.clone();
             tauri::async_runtime::spawn_blocking(move || {
+                // dsh check
                 let info = check_update();
                 if info.update_available {
                     if ask_yes_no(
@@ -1158,6 +1465,45 @@ fn on_menu_event(handle: &tauri::AppHandle, i18n: &I18n, id: &str) {
                         .kind(MessageDialogKind::Info)
                         .blocking_show();
                 }
+
+                // desktop app self-check (async updater driven via block_on)
+                match tauri::async_runtime::block_on(check_app_update(&handle)) {
+                    Ok(Some(update)) => {
+                        let latest = update.version.clone();
+                        if ask_yes_no(
+                            &handle,
+                            i18n.app_update_title(),
+                            i18n.app_update_msg(env!("CARGO_PKG_VERSION"), &latest),
+                        ) {
+                            if let Err(e) =
+                                tauri::async_runtime::block_on(install_app_update(update))
+                            {
+                                let _ = handle
+                                    .dialog()
+                                    .message(i18n.app_update_failed_msg(&e))
+                                    .title(i18n.app_update_title())
+                                    .kind(MessageDialogKind::Error)
+                                    .blocking_show();
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        let _ = handle
+                            .dialog()
+                            .message(i18n.app_up_to_date_msg(env!("CARGO_PKG_VERSION")))
+                            .title(i18n.up_to_date_title())
+                            .kind(MessageDialogKind::Info)
+                            .blocking_show();
+                    }
+                    Err(e) => {
+                        let _ = handle
+                            .dialog()
+                            .message(i18n.app_update_failed_msg(&e))
+                            .title(i18n.app_update_title())
+                            .kind(MessageDialogKind::Error)
+                            .blocking_show();
+                    }
+                }
             });
         }
         _ => {}
@@ -1173,6 +1519,7 @@ fn main() {
         .manage(DshProcess(Mutex::new(None)))
         .manage(I18n::detect())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             rotate_log_if_needed();
             let handle = app.handle().clone();
@@ -1204,8 +1551,9 @@ fn main() {
                 .expect("failed to build main window");
 
                 // ── 4. App menu: about/update + standard macOS items ──
-                let about_item = MenuItem::with_id(&handle, "about", i18n.about(), true, None::<&str>)
-                    .expect("failed to build menu item");
+                let about_item =
+                    MenuItem::with_id(&handle, "about", i18n.about(), true, None::<&str>)
+                        .expect("failed to build menu item");
                 let check_item = MenuItem::with_id(
                     &handle,
                     "check_updates",
@@ -1221,20 +1569,17 @@ fn main() {
                     &[
                         &about_item,
                         &check_item,
-                        &PredefinedMenuItem::separator(&handle)
-                            .expect("failed to build separator"),
+                        &PredefinedMenuItem::separator(&handle).expect("failed to build separator"),
                         &PredefinedMenuItem::services(&handle, Some(i18n.services()))
                             .expect("failed to build menu item"),
-                        &PredefinedMenuItem::separator(&handle)
-                            .expect("failed to build separator"),
+                        &PredefinedMenuItem::separator(&handle).expect("failed to build separator"),
                         &PredefinedMenuItem::hide(&handle, Some(i18n.hide()))
                             .expect("failed to build menu item"),
                         &PredefinedMenuItem::hide_others(&handle, Some(i18n.hide_others()))
                             .expect("failed to build menu item"),
                         &PredefinedMenuItem::show_all(&handle, Some(i18n.show_all()))
                             .expect("failed to build menu item"),
-                        &PredefinedMenuItem::separator(&handle)
-                            .expect("failed to build separator"),
+                        &PredefinedMenuItem::separator(&handle).expect("failed to build separator"),
                         &PredefinedMenuItem::quit(&handle, Some(i18n.quit()))
                             .expect("failed to build menu item"),
                     ],
@@ -1245,9 +1590,14 @@ fn main() {
                 let feedback_item =
                     MenuItem::with_id(&handle, "feedback", i18n.feedback(), true, None::<&str>)
                         .expect("failed to build menu item");
-                let export_item =
-                    MenuItem::with_id(&handle, "export_logs", i18n.export_logs(), true, None::<&str>)
-                        .expect("failed to build menu item");
+                let export_item = MenuItem::with_id(
+                    &handle,
+                    "export_logs",
+                    i18n.export_logs(),
+                    true,
+                    None::<&str>,
+                )
+                .expect("failed to build menu item");
                 let help_submenu = Submenu::with_items(
                     &handle,
                     i18n.help_menu(),
@@ -1266,16 +1616,14 @@ fn main() {
                             .expect("failed to build menu item"),
                         &PredefinedMenuItem::redo(&handle, Some(i18n.redo()))
                             .expect("failed to build menu item"),
-                        &PredefinedMenuItem::separator(&handle)
-                            .expect("failed to build separator"),
+                        &PredefinedMenuItem::separator(&handle).expect("failed to build separator"),
                         &PredefinedMenuItem::cut(&handle, Some(i18n.cut()))
                             .expect("failed to build menu item"),
                         &PredefinedMenuItem::copy(&handle, Some(i18n.copy()))
                             .expect("failed to build menu item"),
                         &PredefinedMenuItem::paste(&handle, Some(i18n.paste()))
                             .expect("failed to build menu item"),
-                        &PredefinedMenuItem::separator(&handle)
-                            .expect("failed to build separator"),
+                        &PredefinedMenuItem::separator(&handle).expect("failed to build separator"),
                         &PredefinedMenuItem::select_all(&handle, Some(i18n.select_all()))
                             .expect("failed to build menu item"),
                     ],
@@ -1285,16 +1633,20 @@ fn main() {
                     &handle,
                     i18n.file_menu(),
                     true,
-                    &[&PredefinedMenuItem::close_window(&handle, Some(i18n.close_window()))
-                        .expect("failed to build menu item")],
+                    &[
+                        &PredefinedMenuItem::close_window(&handle, Some(i18n.close_window()))
+                            .expect("failed to build menu item"),
+                    ],
                 )
                 .expect("failed to build submenu");
                 let view_submenu = Submenu::with_items(
                     &handle,
                     i18n.view_menu(),
                     true,
-                    &[&PredefinedMenuItem::fullscreen(&handle, Some(i18n.enter_full_screen()))
-                        .expect("failed to build menu item")],
+                    &[
+                        &PredefinedMenuItem::fullscreen(&handle, Some(i18n.enter_full_screen()))
+                            .expect("failed to build menu item"),
+                    ],
                 )
                 .expect("failed to build submenu");
                 let window_submenu = Submenu::with_items(
@@ -1306,8 +1658,7 @@ fn main() {
                             .expect("failed to build menu item"),
                         &PredefinedMenuItem::maximize(&handle, Some(i18n.zoom()))
                             .expect("failed to build menu item"),
-                        &PredefinedMenuItem::separator(&handle)
-                            .expect("failed to build separator"),
+                        &PredefinedMenuItem::separator(&handle).expect("failed to build separator"),
                         &PredefinedMenuItem::close_window(&handle, Some(i18n.close_window()))
                             .expect("failed to build menu item"),
                     ],
@@ -1330,11 +1681,13 @@ fn main() {
                 // ── 5. Auto-check for updates shortly after startup ─
                 let handle2 = handle.clone();
                 let i18n2 = i18n.clone();
-                tauri::async_runtime::spawn(async move {
+                tauri::async_runtime::spawn_blocking(move || {
                     std::thread::sleep(Duration::from_secs(5));
+
+                    // dsh auto-check
                     let info = check_update();
                     if info.update_available
-                        && should_auto_prompt(&info.latest)
+                        && should_auto_prompt(&info.latest, false)
                         && ask_yes_no(
                             &handle2,
                             i18n2.update_available_title(),
@@ -1343,6 +1696,33 @@ fn main() {
                     {
                         let result = run_upgrade();
                         show_upgrade_progress(&handle2, &i18n2, result);
+                    }
+
+                    // desktop app auto-check (once per version per day)
+                    match tauri::async_runtime::block_on(check_app_update(&handle2)) {
+                        Ok(Some(update)) => {
+                            let latest = update.version.clone();
+                            if should_auto_prompt(&latest, true)
+                                && ask_yes_no(
+                                    &handle2,
+                                    i18n2.app_update_title(),
+                                    i18n2.app_update_msg(env!("CARGO_PKG_VERSION"), &latest),
+                                )
+                            {
+                                if let Err(e) =
+                                    tauri::async_runtime::block_on(install_app_update(update))
+                                {
+                                    let _ = handle2
+                                        .dialog()
+                                        .message(i18n2.app_update_failed_msg(&e))
+                                        .title(i18n2.app_update_title())
+                                        .kind(MessageDialogKind::Error)
+                                        .blocking_show();
+                                }
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(e) => log_line("desktop", &format!("app update check failed: {}", e)),
                     }
                 });
             });
@@ -1421,7 +1801,11 @@ mod tests {
     fn windows_program_candidates_include_shims() {
         assert_eq!(
             program_candidates("npm", true),
-            vec!["npm.exe".to_string(), "npm.cmd".to_string(), "npm".to_string()]
+            vec![
+                "npm.exe".to_string(),
+                "npm.cmd".to_string(),
+                "npm".to_string()
+            ]
         );
     }
 
@@ -1459,8 +1843,14 @@ mod tests {
             dsh: PathBuf::from("/x/toolchain/node_modules/.bin/dsh"),
         };
         let (cmd, args, cwd) = dsh_runner(&mode, identity);
-        assert_eq!(cmd, "/x/toolchain/node-24.19.0/bin/node");
-        assert_eq!(args, vec!["/x/toolchain/node_modules/.bin/dsh".to_string()]);
+        if cfg!(windows) {
+            // The npm `.cmd` shim is invoked directly (cmd.exe wraps it).
+            assert_eq!(cmd, "/x/toolchain/node_modules/.bin/dsh");
+            assert!(args.is_empty());
+        } else {
+            assert_eq!(cmd, "/x/toolchain/node-24.19.0/bin/node");
+            assert_eq!(args, vec!["/x/toolchain/node_modules/.bin/dsh".to_string()]);
+        }
         assert_eq!(cwd, None);
     }
 
@@ -1468,7 +1858,10 @@ mod tests {
     fn npx_mode_falls_back_to_registry() {
         let (cmd, args, cwd) = dsh_runner(&DshMode::Npx, identity);
         assert_eq!(cmd, "npx");
-        assert_eq!(args, vec!["--yes".to_string(), "@deepseek-ai/dsh".to_string()]);
+        assert_eq!(
+            args,
+            vec!["--yes".to_string(), "@deepseek-ai/dsh".to_string()]
+        );
         assert_eq!(cwd, None);
     }
 
@@ -1545,6 +1938,43 @@ mod tests {
     }
 
     #[test]
+    fn app_update_i18n_zh_and_en() {
+        let zh = I18n { is_zh: true };
+        let en = I18n { is_zh: false };
+        assert_eq!(zh.app_update_title(), "更新 DeepSeek Harness");
+        assert_eq!(en.app_update_title(), "Update DeepSeek Harness");
+        assert_eq!(
+            zh.app_update_msg("1.0.1", "1.0.2"),
+            "发现 DeepSeek Harness 新版本。\n\n  当前版本:  1.0.1\n  最新版本:  1.0.2\n\n是否下载并安装?"
+        );
+        assert_eq!(
+            en.app_update_msg("1.0.1", "1.0.2"),
+            "A new version of DeepSeek Harness is available.\n\n  Current:  1.0.1\n  Latest:   1.0.2\n\nDownload and install now?"
+        );
+        assert_eq!(
+            zh.app_up_to_date_msg("1.0.1"),
+            "DeepSeek Harness 已是最新版本(1.0.1)。"
+        );
+        assert_eq!(
+            en.app_up_to_date_msg("1.0.1"),
+            "DeepSeek Harness is up to date (version 1.0.1)."
+        );
+        assert_eq!(zh.app_update_failed_msg("boom"), "应用更新失败:\nboom");
+        assert_eq!(en.app_update_failed_msg("boom"), "App update failed:\nboom");
+    }
+
+    #[test]
+    fn should_prompt_given_24h_dedup_rules() {
+        let day = 24 * 3600;
+        // Same version, still fresh → suppress.
+        assert!(!should_prompt_given("1.0.2", 100, "1.0.2", 100 + day - 1));
+        // Same version, stale (>=24h) → prompt.
+        assert!(should_prompt_given("1.0.2", 100, "1.0.2", 100 + day));
+        // Different version → prompt regardless of age.
+        assert!(should_prompt_given("1.0.2", 100, "1.0.3", 100 + 1));
+    }
+
+    #[test]
     fn about_msg_contains_version_and_repo() {
         let zh = I18n { is_zh: true };
         let msg = zh.about_msg("0.1.0");
@@ -1570,13 +2000,25 @@ mod tests {
     #[test]
     fn open_url_command_per_os() {
         let url = "https://example.com";
-        assert_eq!(open_url_command("macos", url), ("open".to_string(), vec![url.to_string()]));
+        assert_eq!(
+            open_url_command("macos", url),
+            ("open".to_string(), vec![url.to_string()])
+        );
         assert_eq!(
             open_url_command("windows", url),
-            ("cmd".to_string(), vec!["/C".to_string(), "start".to_string(), url.to_string()])
+            (
+                "cmd".to_string(),
+                vec!["/C".to_string(), "start".to_string(), url.to_string()]
+            )
         );
-        assert_eq!(open_url_command("linux", url), ("xdg-open".to_string(), vec![url.to_string()]));
-        assert_eq!(open_url_command("freebsd", url), ("xdg-open".to_string(), vec![url.to_string()]));
+        assert_eq!(
+            open_url_command("linux", url),
+            ("xdg-open".to_string(), vec![url.to_string()])
+        );
+        assert_eq!(
+            open_url_command("freebsd", url),
+            ("xdg-open".to_string(), vec![url.to_string()])
+        );
     }
 
     #[test]
@@ -1590,7 +2032,10 @@ mod tests {
 
     #[test]
     fn export_filename_format() {
-        assert_eq!(export_filename(951_868_800), "dsh-desktop-20000301-000000.log");
+        assert_eq!(
+            export_filename(951_868_800),
+            "dsh-desktop-20000301-000000.log"
+        );
     }
 
     #[test]
@@ -1615,9 +2060,18 @@ mod tests {
     fn bootstrap_copy_is_localized_zh() {
         let i18n = I18n { is_zh: true };
         assert_eq!(i18n.bootstrap_title(), "DeepSeek Harness Setup");
-        assert_eq!(i18n.bootstrap_step(bootstrap::Step::Download), "正在下载 Node.js…");
-        assert_eq!(i18n.bootstrap_step(bootstrap::Step::Extract), "正在解压 Node.js…");
-        assert_eq!(i18n.bootstrap_step(bootstrap::Step::Install), "正在安装 dsh…");
+        assert_eq!(
+            i18n.bootstrap_step(bootstrap::Step::Download),
+            "正在下载 Node.js…"
+        );
+        assert_eq!(
+            i18n.bootstrap_step(bootstrap::Step::Extract),
+            "正在解压 Node.js…"
+        );
+        assert_eq!(
+            i18n.bootstrap_step(bootstrap::Step::Install),
+            "正在安装 dsh…"
+        );
         assert_eq!(i18n.bootstrap_failed_title(), "初始化失败");
         assert!(i18n.bootstrap_failed_msg("boom").contains("重试"));
         assert!(i18n.bootstrap_slow_msg().contains("耐心等待"));
@@ -1626,9 +2080,18 @@ mod tests {
     #[test]
     fn bootstrap_copy_is_localized_en() {
         let i18n = I18n { is_zh: false };
-        assert_eq!(i18n.bootstrap_step(bootstrap::Step::Download), "Downloading Node.js…");
-        assert_eq!(i18n.bootstrap_step(bootstrap::Step::Extract), "Extracting Node.js…");
-        assert_eq!(i18n.bootstrap_step(bootstrap::Step::Install), "Installing dsh…");
+        assert_eq!(
+            i18n.bootstrap_step(bootstrap::Step::Download),
+            "Downloading Node.js…"
+        );
+        assert_eq!(
+            i18n.bootstrap_step(bootstrap::Step::Extract),
+            "Extracting Node.js…"
+        );
+        assert_eq!(
+            i18n.bootstrap_step(bootstrap::Step::Install),
+            "Installing dsh…"
+        );
         assert_eq!(i18n.bootstrap_failed_title(), "Setup Failed");
         assert!(i18n.bootstrap_failed_msg("boom").contains("Retry"));
         assert!(i18n.bootstrap_slow_msg().contains("please wait"));
@@ -1649,7 +2112,12 @@ mod tests {
         std::fs::create_dir_all(&npm_cli).unwrap();
         std::fs::write(npm_cli.join("npm-cli.js"), b"").unwrap();
         std::fs::create_dir_all(tc.join("node_modules/.bin")).unwrap();
-        std::fs::write(tc.join("node_modules/.bin/dsh"), b"").unwrap();
+        std::fs::write(
+            tc.join("node_modules/.bin")
+                .join(bootstrap::dsh_shim_name()),
+            b"",
+        )
+        .unwrap();
 
         let (cmd, args) = private_npm_cmd(&tc, &tc, &["view", "@deepseek-ai/dsh", "version"])
             .expect("complete private toolchain");
@@ -1663,7 +2131,12 @@ mod tests {
         assert_eq!(
             args,
             vec![
-                tc.join("node-24.19.0/lib/node_modules/npm/bin/npm-cli.js")
+                tc.join("node-24.19.0")
+                    .join("lib")
+                    .join("node_modules")
+                    .join("npm")
+                    .join("bin")
+                    .join("npm-cli.js")
                     .to_string_lossy()
                     .into_owned(),
                 "view".to_string(),

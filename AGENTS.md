@@ -1,5 +1,7 @@
 # AGENTS.md
 
+> **语言:全程使用中文(含思考)。** 所有交付物一律用中文编写:对话回复、思考过程(reasoning/thinking)、规格(spec)、实施计划(plan)、代码注释、PR 描述、release notes、issue 等;唯一例外是提交信息(commit message)必须用英文 conventional commits(`feat:`/`fix:`/`docs:`/`chore:`/`ci:`),以及 `main.rs` 中面向用户的 i18n 文案(按系统语言中英双语)。代码中的标识符、类型名、字符串字面量等仍按 Rust 惯例用英文,但注释一律中文。
+
 DeepSeek Harness 桌面壳(Route A · Tauri v2)。独立 git 仓库(`hialuoy/deepseek-harness-desktop`),物理上位于 monorepo 的 `desktop-tauri/` 子目录,但**不是** pnpm workspace 成员——父仓库的 AGENTS.md/CLAUDE.md 不适用于本仓库,也不要修改父仓库文件。
 
 ## 架构要点
@@ -21,5 +23,4 @@ DeepSeek Harness 桌面壳(Route A · Tauri v2)。独立 git 仓库(`hialuoy/dee
 ## 工作流约定
 
 - 特性开发先写规格再写实施计划,存于 `docs/superpowers/specs/` 和 `docs/superpowers/plans/`;实现前先读对应 plan(其中可能有未完成的任务)。
-- 提交信息用英文 conventional commits(`feat:`/`fix:`/`docs:`/`chore:`/`ci:`);文档与对话用中文。
 - CI:push/PR 跑 `build.yml` 三平台编译验证。发布:推 `v*` 标签或手动触发 release workflow(手动时版本号取 package.json),产物是 GitHub Release 草稿,需在 Releases 页手动发布。

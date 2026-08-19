@@ -7,6 +7,20 @@ use std::process::Command;
 
 use semver::Version;
 
+/// Suppress the console window Windows allocates when a GUI-subsystem app
+/// spawns a console-subsystem child (node.exe, cmd.exe, powershell.exe).
+/// Without this, every dsh/bootstrap child flashes a terminal window on
+/// Windows. No-op on non-Windows platforms.
+#[cfg(windows)]
+pub fn hide_console(cmd: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    // CREATE_NO_WINDOW (0x08000000)
+    cmd.creation_flags(0x0800_0000);
+}
+
+#[cfg(not(windows))]
+pub fn hide_console(_cmd: &mut Command) {}
+
 pub const NODE_VERSION: &str = "24.19.0";
 pub const MIN_NODE_VERSION: &str = "22.0.0";
 pub const DSH_PACKAGE: &str = "@deepseek-ai/dsh";
@@ -102,11 +116,24 @@ pub fn parse_node_version_ok(output: &str) -> bool {
 
 /// Run `node -v` and check it meets MIN_NODE_VERSION.
 pub fn node_version_ok(node: &Path) -> bool {
-    Command::new(node)
-        .arg("-v")
-        .output()
+    let mut cmd = Command::new(node);
+    cmd.arg("-v");
+    hide_console(&mut cmd);
+    cmd.output()
         .map(|o| parse_node_version_ok(&String::from_utf8_lossy(&o.stdout)))
         .unwrap_or(false)
+}
+
+/// Filename of the npm-generated dsh shim on this platform. On Windows npm
+/// creates three shims — `dsh` (a POSIX shell script for Git Bash),
+/// `dsh.cmd` (cmd) and `dsh.ps1` (PowerShell) — and only `dsh.cmd` is
+/// executable; the extensionless `dsh` cannot be run by node.exe.
+pub(crate) fn dsh_shim_name() -> &'static str {
+    if cfg!(windows) {
+        "dsh.cmd"
+    } else {
+        "dsh"
+    }
 }
 
 /// Locate a complete private toolchain: newest node-<ver>/bin/node plus the
@@ -128,12 +155,36 @@ pub fn private_node_and_dsh(toolchain: &Path) -> Option<(PathBuf, PathBuf)> {
     let node = dir
         .join("bin")
         .join(if cfg!(windows) { "node.exe" } else { "node" });
-    let dsh = toolchain.join("node_modules").join(".bin").join("dsh");
+    let dsh = toolchain
+        .join("node_modules")
+        .join(".bin")
+        .join(dsh_shim_name());
     if node.is_file() && dsh.exists() {
         Some((node, dsh))
     } else {
         None
     }
+}
+
+/// Bin dirs of every private-toolchain node install (`node-<ver>/bin`),
+/// newest first. These must be on the child PATH so npm's `.cmd` shims (which
+/// invoke `node` by name) can find the private node.exe on Windows.
+pub fn private_node_bin_dirs(toolchain: &Path) -> Vec<PathBuf> {
+    let mut versions: Vec<(Version, PathBuf)> = Vec::new();
+    let Ok(entries) = std::fs::read_dir(toolchain) else {
+        return Vec::new();
+    };
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if let Some(ver) = name
+            .strip_prefix("node-")
+            .and_then(|v| Version::parse(v).ok())
+        {
+            versions.push((ver, e.path().join("bin")));
+        }
+    }
+    versions.sort_by(|a, b| b.0.cmp(&a.0));
+    versions.into_iter().map(|(_, bin)| bin).collect()
 }
 
 /// Args for `node npm-cli.js <args...>` installing dsh into the private prefix.
@@ -167,10 +218,12 @@ pub fn script_path_with_node(node: &Path) -> String {
 
 /// Run `<node> <npm-cli.js> install ...`; Ok(output) on success, Err(tail) on failure.
 pub fn install_dsh(node: &Path, npm_cli: &Path, prefix: &Path) -> Result<String, String> {
-    let output = Command::new(node)
-        .arg(npm_cli)
+    let mut cmd = Command::new(node);
+    cmd.arg(npm_cli)
         .args(npm_install_args(prefix))
-        .env("PATH", script_path_with_node(node))
+        .env("PATH", script_path_with_node(node));
+    hide_console(&mut cmd);
+    let output = cmd
         .output()
         .map_err(|e| format!("failed to run npm: {}", e))?;
     if output.status.success() {
@@ -232,25 +285,24 @@ pub fn download_node(
 pub fn extract_archive(archive: &Path, dest_dir: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dest_dir)
         .map_err(|e| format!("mkdir {}: {}", dest_dir.display(), e))?;
-    let status = if cfg!(target_os = "macos") {
-        Command::new("tar")
-            .arg("-xJf")
-            .arg(archive)
-            .arg("-C")
-            .arg(dest_dir)
-            .status()
+    let mut cmd = if cfg!(target_os = "macos") {
+        let mut c = Command::new("tar");
+        c.arg("-xJf").arg(archive).arg("-C").arg(dest_dir);
+        c
     } else if cfg!(target_os = "windows") {
-        Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-Command"])
+        let mut c = Command::new("powershell.exe");
+        c.args(["-NoProfile", "-NonInteractive", "-Command"])
             .arg(format!(
                 "Expand-Archive -LiteralPath '{}' -DestinationPath '{}' -Force",
                 archive.display(),
                 dest_dir.display()
-            ))
-            .status()
+            ));
+        c
     } else {
         return Err("unsupported platform".to_string());
     };
+    hide_console(&mut cmd);
+    let status = cmd.status();
     match status {
         Ok(s) if s.success() => Ok(()),
         Ok(s) => Err(format!("extract failed with status: {}", s)),
@@ -423,7 +475,7 @@ mod tests {
         std::fs::write(tc.join("node-24.19.0").join("bin").join(bin_name()), b"").unwrap();
         assert!(private_node_and_dsh(&tc).is_none());
         std::fs::create_dir_all(tc.join("node_modules/.bin")).unwrap();
-        std::fs::write(tc.join("node_modules/.bin/dsh"), b"").unwrap();
+        std::fs::write(tc.join("node_modules/.bin").join(dsh_shim_name()), b"").unwrap();
         assert!(private_node_and_dsh(&tc).is_some());
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -439,9 +491,41 @@ mod tests {
             std::fs::write(tc.join(v).join("bin").join(bin_name()), b"").unwrap();
         }
         std::fs::create_dir_all(tc.join("node_modules/.bin")).unwrap();
-        std::fs::write(tc.join("node_modules/.bin/dsh"), b"").unwrap();
+        std::fs::write(tc.join("node_modules/.bin").join(dsh_shim_name()), b"").unwrap();
         let (node, _dsh) = private_node_and_dsh(&tc).expect("both parts present");
         assert!(node.to_string_lossy().contains("node-24.19.0"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn private_node_bin_dirs_lists_newest_first() {
+        let root = std::env::temp_dir().join(format!("dsh-bindirs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let tc = root.join("toolchain");
+        for v in ["node-22.9.0", "node-24.19.0", "node-23.1.0"] {
+            std::fs::create_dir_all(tc.join(v).join("bin")).unwrap();
+        }
+        // Non-version dirs/files must be ignored.
+        std::fs::create_dir_all(tc.join("node_modules")).unwrap();
+        std::fs::write(tc.join("stray.txt"), b"").unwrap();
+
+        let dirs = private_node_bin_dirs(&tc);
+        // Each returned path is a `bin` dir; order is newest version first.
+        assert!(dirs
+            .iter()
+            .all(|d| d.file_name().unwrap().to_string_lossy() == "bin"));
+        let parents: Vec<String> = dirs
+            .iter()
+            .map(|d| {
+                d.parent()
+                    .unwrap()
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        assert_eq!(parents, vec!["node-24.19.0", "node-23.1.0", "node-22.9.0"]);
         let _ = std::fs::remove_dir_all(&root);
     }
 
