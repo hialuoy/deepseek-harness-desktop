@@ -1,6 +1,6 @@
 {
   "name": "dsh-desktop-tauri",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "DeepSeek Harness Desktop — Tauri shell (Route A)",
   "scripts": {

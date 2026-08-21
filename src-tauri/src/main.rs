@@ -6,6 +6,7 @@ mod bootstrap;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -16,6 +17,30 @@ use tauri_plugin_dialog::{
     DialogExt, MessageDialogButtons, MessageDialogKind, MessageDialogResult,
 };
 use tauri_plugin_updater::UpdaterExt;
+
+/// Prevents overlapping npm installs when the user triggers check/update twice.
+static UPGRADE_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+struct UpgradeInProgressGuard;
+
+impl UpgradeInProgressGuard {
+    fn try_acquire() -> Option<Self> {
+        if UPGRADE_IN_PROGRESS
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            Some(Self)
+        } else {
+            None
+        }
+    }
+}
+
+impl Drop for UpgradeInProgressGuard {
+    fn drop(&mut self) {
+        UPGRADE_IN_PROGRESS.store(false, Ordering::SeqCst);
+    }
+}
 
 /// Wrapper so we can store the dsh child process in Tauri managed state.
 struct DshProcess(Mutex<Option<Child>>);
@@ -523,8 +548,146 @@ fn dsh_runner(
 /// Resolve how to launch dsh web for the detected mode.
 fn resolve_dsh_command() -> (String, Vec<String>, Option<PathBuf>) {
     let (cmd, mut args, cwd) = dsh_runner(&detect_dsh_mode(), resolve_program);
-    args.extend(["web".into(), "--port".into(), "0".into()]);
+    // dsh web opens the system browser by default; the desktop shell loads
+    // the URL in its own WebView instead.
+    args.extend([
+        "web".into(),
+        "--port".into(),
+        "0".into(),
+        "--no-open".into(),
+    ]);
     (cmd, args, cwd)
+}
+
+const DSH_LATEST: &str = "@deepseek-ai/dsh@latest";
+
+/// How to spawn an upgrade subprocess.
+struct UpgradePlan {
+    cmd: String,
+    args: Vec<String>,
+    cwd: Option<PathBuf>,
+    /// When set, use this PATH instead of [`augmented_path()`] so another
+    /// node tree (e.g. the private bootstrap toolchain) cannot shadow npm.
+    path: Option<String>,
+}
+
+/// Node install root for shims living in `{root}/bin/{name}` (nvm, Homebrew node).
+fn node_install_root_from_shim(shim: &Path) -> Option<PathBuf> {
+    let bin_dir = shim.parent()?;
+    let root = bin_dir.parent()?;
+    if bin_dir.file_name()?.to_string_lossy() != "bin" {
+        return None;
+    }
+    Some(root.to_path_buf())
+}
+
+fn npm_shim_name() -> &'static str {
+    if cfg!(windows) {
+        "npm.cmd"
+    } else {
+        "npm"
+    }
+}
+
+fn npm_global_install_args() -> Vec<String> {
+    vec![
+        "install".to_string(),
+        "-g".to_string(),
+        "--no-fund".to_string(),
+        "--no-audit".to_string(),
+        DSH_LATEST.to_string(),
+    ]
+}
+
+/// PATH scoped to one node install so postinstall scripts pick the right `node`.
+fn upgrade_path_for_node_bin(node_bin: &Path) -> String {
+    let sep = if cfg!(windows) { ";" } else { ":" };
+    let mut parts = vec![node_bin.to_string_lossy().into_owned()];
+    if cfg!(windows) {
+        if let Ok(path) = std::env::var("PATH") {
+            parts.push(path);
+        }
+    } else {
+        parts.extend(["/usr/bin".to_string(), "/bin".to_string()]);
+    }
+    parts.join(sep)
+}
+
+/// Upgrade dsh for a global shim (`{root}/bin/dsh`). Uses that tree's npm
+/// with `-g` and an isolated PATH — not `--prefix {root}`, which would install
+/// into `{root}/node_modules` while nvm global packages live under
+/// `{root}/lib/node_modules` where the shim points.
+fn npm_upgrade_plan_for_shim(shim: &Path) -> Option<UpgradePlan> {
+    let root = node_install_root_from_shim(shim)?;
+    let npm = root.join("bin").join(npm_shim_name());
+    if !npm.is_file() {
+        return None;
+    }
+    let node_bin = root.join("bin");
+    Some(UpgradePlan {
+        cmd: npm.to_string_lossy().into_owned(),
+        args: npm_global_install_args(),
+        cwd: None,
+        path: Some(upgrade_path_for_node_bin(&node_bin)),
+    })
+}
+
+/// Upgrade command aligned with [`detect_dsh_mode`]: the install target must
+/// match the dsh binary used by [`current_version`] and [`resolve_dsh_command`].
+fn upgrade_runner(mode: &DshMode, resolve: impl Fn(&str) -> String) -> UpgradePlan {
+    match mode {
+        DshMode::Source(root) => UpgradePlan {
+            cmd: resolve("sh"),
+            args: vec![
+                "-c".to_string(),
+                // --autostash stashes and reapplies local changes across the rebase,
+                // so a dirty working tree does not block the update.
+                "git pull --rebase --autostash && pnpm install && pnpm run build".to_string(),
+            ],
+            cwd: Some(root.clone()),
+            path: None,
+        },
+        DshMode::Private { node, .. } => {
+            if let Some((node_cmd, args)) = private_npm_cmd(
+                &bootstrap::toolchain_dir(),
+                &bootstrap::toolchain_dir(),
+                &["install", "--no-fund", "--no-audit", DSH_LATEST],
+            ) {
+                UpgradePlan {
+                    cmd: node_cmd,
+                    args,
+                    cwd: None,
+                    path: node.parent().map(upgrade_path_for_node_bin),
+                }
+            } else {
+                global_npm_upgrade(resolve)
+            }
+        }
+        DshMode::Global(dsh) => {
+            npm_upgrade_plan_for_shim(dsh).unwrap_or_else(|| global_npm_upgrade(resolve))
+        }
+        // Bundled copy is read-only; best-effort global install until the app itself updates.
+        DshMode::Bundled(bin) => {
+            npm_upgrade_plan_for_shim(bin).unwrap_or_else(|| global_npm_upgrade(resolve))
+        }
+        DshMode::Npx => global_npm_upgrade(resolve),
+    }
+}
+
+/// Fallback when no node prefix can be derived: `npm install -g`.
+fn global_npm_upgrade(resolve: impl Fn(&str) -> String) -> UpgradePlan {
+    UpgradePlan {
+        cmd: resolve("npm"),
+        args: vec![
+            "install".to_string(),
+            "-g".to_string(),
+            "--no-fund".to_string(),
+            "--no-audit".to_string(),
+            DSH_LATEST.to_string(),
+        ],
+        cwd: None,
+        path: None,
+    }
 }
 
 /// Common locations where node/pnpm toolchains live, probed in order.
@@ -1073,51 +1236,22 @@ async fn install_app_update(update: tauri_plugin_updater::Update) -> Result<(), 
 
 /// Run the appropriate upgrade command for the current mode, streaming lines to stdout.
 fn run_upgrade() -> Result<(bool, String), String> {
-    let is_source = find_repo_root().is_some();
-    let (cmd, args, cwd) = if is_source {
-        let root = find_repo_root().unwrap();
-        (
-            resolve_program("sh"),
-            vec![
-                "-c".to_string(),
-                // --autostash stashes and reapplies local changes across the rebase,
-                // so a dirty working tree does not block the update.
-                "git pull --rebase --autostash && pnpm install && pnpm run build".to_string(),
-            ],
-            Some(root),
-        )
-    } else if let Some((node, args)) = private_npm_cmd(
-        &bootstrap::toolchain_dir(),
-        &bootstrap::toolchain_dir(),
-        &[
-            "install",
-            "--no-fund",
-            "--no-audit",
-            "@deepseek-ai/dsh@latest",
-        ],
-    ) {
-        (node, args, None)
-    } else {
-        (
-            resolve_program("npm"),
-            vec![
-                "install".to_string(),
-                "-g".to_string(),
-                "@deepseek-ai/dsh@latest".to_string(),
-            ],
-            None,
-        )
-    };
+    let _busy = UpgradeInProgressGuard::try_acquire()
+        .ok_or_else(|| "upgrade already in progress".to_string())?;
+    let plan = upgrade_runner(&detect_dsh_mode(), resolve_program);
 
-    log_line("desktop", &format!("upgrading: {} {}", cmd, args.join(" ")));
+    log_line(
+        "desktop",
+        &format!("upgrading: {} {}", plan.cmd, plan.args.join(" ")),
+    );
 
-    let mut proc = Command::new(&cmd);
-    proc.args(&args);
+    let mut proc = Command::new(&plan.cmd);
+    proc.args(&plan.args);
     proc.stdout(Stdio::piped());
     proc.stderr(Stdio::piped());
-    proc.env("PATH", augmented_path());
+    proc.env("PATH", plan.path.as_deref().unwrap_or(&augmented_path()));
     bootstrap::hide_console(&mut proc);
-    if let Some(ref dir) = cwd {
+    if let Some(ref dir) = plan.cwd {
         proc.current_dir(dir);
     }
     let mut child = proc
@@ -1496,12 +1630,9 @@ fn on_menu_event(handle: &tauri::AppHandle, i18n: &I18n, id: &str) {
                             .blocking_show();
                     }
                     Err(e) => {
-                        let _ = handle
-                            .dialog()
-                            .message(i18n.app_update_failed_msg(&e))
-                            .title(i18n.app_update_title())
-                            .kind(MessageDialogKind::Error)
-                            .blocking_show();
+                        // Manifest missing or endpoint unreachable — not actionable
+                        // for the user; startup auto-check logs the same way.
+                        log_line("desktop", &format!("app update check failed: {}", e));
                     }
                 }
             });
@@ -1863,6 +1994,64 @@ mod tests {
             vec!["--yes".to_string(), "@deepseek-ai/dsh".to_string()]
         );
         assert_eq!(cwd, None);
+    }
+
+    #[test]
+    fn node_install_root_from_bin_shim() {
+        let dsh = PathBuf::from("/nvm/versions/node/v22.23.1/bin/dsh");
+        assert_eq!(
+            node_install_root_from_shim(&dsh).unwrap(),
+            PathBuf::from("/nvm/versions/node/v22.23.1")
+        );
+    }
+
+    #[test]
+    fn global_upgrade_targets_detected_node_with_isolated_path() {
+        let root = std::env::temp_dir().join(format!("dsh-upg-global-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let prefix = root.join("node-v22.23.1");
+        std::fs::create_dir_all(prefix.join("bin")).unwrap();
+        std::fs::write(prefix.join("bin").join("npm"), b"").unwrap();
+        std::fs::write(prefix.join("bin").join("dsh"), b"").unwrap();
+
+        let dsh = prefix.join("bin").join("dsh");
+        let plan = npm_upgrade_plan_for_shim(&dsh).expect("npm beside dsh");
+        assert_eq!(plan.cmd, prefix.join("bin").join("npm").to_string_lossy());
+        assert_eq!(
+            plan.args,
+            vec![
+                "install".to_string(),
+                "-g".to_string(),
+                "--no-fund".to_string(),
+                "--no-audit".to_string(),
+                "@deepseek-ai/dsh@latest".to_string(),
+            ]
+        );
+        assert!(plan
+            .path
+            .as_ref()
+            .unwrap()
+            .starts_with(prefix.join("bin").to_string_lossy().as_ref()));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn global_upgrade_falls_back_without_local_npm() {
+        let dsh = PathBuf::from("/opt/homebrew/bin/dsh");
+        let plan = upgrade_runner(&DshMode::Global(dsh), identity);
+        assert_eq!(plan.cmd, "npm");
+        assert_eq!(plan.args[0], "install");
+        assert!(plan.args.contains(&"-g".to_string()));
+        assert_eq!(plan.cwd, None);
+    }
+
+    #[test]
+    fn source_upgrade_runs_git_pull_in_repo_root() {
+        let root = PathBuf::from("/repo");
+        let plan = upgrade_runner(&DshMode::Source(root.clone()), identity);
+        assert_eq!(plan.cmd, "sh");
+        assert!(plan.args[1].contains("git pull"));
+        assert_eq!(plan.cwd, Some(root));
     }
 
     #[test]

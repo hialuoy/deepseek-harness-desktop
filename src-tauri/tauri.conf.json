@@ -1,6 +1,6 @@
 {
   "productName": "DeepSeek Harness",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "identifier": "com.deepseek.harness",
   "build": {
     "frontendDist": "../dist",
@@ -27,7 +27,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE3RUQwNkM0MzhDNTZCODQKUldTRWE4VTR4QWJ0RjJaamhPa3p2VDlmSC85VmFrUVp1WGIwUEhJbVlGMFY2MnBJUjY4OUxSWnQK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdDRTY5MkEzQ0IyMjM0RTAKUldUZ05DTExvNUxtZkYvQUFNMVdlZVdaOFlQVzVBSVRNTUtYQ2pnTDJocEp0d0JYTjFhQWtVdVcK",
       "endpoints": [
         "https://github.com/hialuoy/deepseek-harness-desktop/releases/latest/download/latest.json"
       ],

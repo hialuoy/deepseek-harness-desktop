@@ -53,6 +53,9 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # 无密码密钥须显式置空，否则 tauri 会交互式索要密码导致 CI 失败
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
         with:
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || 'v__VERSION__' }}
           releaseName: 'DeepSeek Harness v__VERSION__'
