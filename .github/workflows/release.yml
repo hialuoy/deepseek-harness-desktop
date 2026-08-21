@@ -63,11 +63,19 @@ jobs:
             ## DeepSeek Harness v__VERSION__
 
             ### What's new / 更新内容
-            _(Auto-generated — edit this draft before publishing.)_
+            _(Edit this section before publishing the draft.)_
 
             ### Install / 安装
-            Choose the installer for your platform below.
-            请选择对应平台的安装包。
+
+            | Platform | Recommended |
+            |----------|-------------|
+            | macOS Apple Silicon | `DeepSeek.Harness___VERSION___aarch64.dmg` |
+            | macOS Intel | `DeepSeek.Harness___VERSION___x64.dmg` |
+            | Windows | `DeepSeek.Harness___VERSION___x64-setup.exe` or `.msi` |
+            | Linux | `.deb` / `.AppImage` / `.rpm` (see Assets below) |
+
+            安装后可在菜单 **帮助 → 检查更新…** 验证 dsh 与桌面应用更新。
+            After install, use **Help → Check for Updates…** to verify dsh and app updates.
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
