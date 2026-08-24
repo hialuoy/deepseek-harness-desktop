@@ -7,6 +7,10 @@ src-tauri/gen/schemas/
 # Node.js
 node_modules/
 
+# pnpm local store and lockfile (repo uses npm, lockfile intentionally absent)
+.pnpm-store/
+pnpm-lock.yaml
+
 # macOS
 .DS_Store
 

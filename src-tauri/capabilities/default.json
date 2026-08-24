@@ -1,8 +1,17 @@
 {
   "identifier": "default",
-  "description": "Default capability",
+  "description": "Default capability for the desktop shell: dialog permissions plus the window-control and menu commands used by the custom titlebar on Windows.",
   "windows": ["main"],
   "permissions": [
-    "dialog:default"
-  ]
+    "dialog:default",
+    "allow-window-minimize",
+    "allow-window-toggle-maximize",
+    "allow-window-close",
+    "allow-window-toggle-fullscreen",
+    "allow-window-start-dragging",
+    "allow-menu-action"
+  ],
+  "remote": {
+    "urls": ["http://127.0.0.1:*"]
+  }
 }

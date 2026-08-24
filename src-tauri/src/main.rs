@@ -11,6 +11,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use semver::Version;
+#[cfg(not(target_os = "windows"))]
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::Manager;
 use tauri_plugin_dialog::{
@@ -271,6 +272,7 @@ impl I18n {
         }
     }
 
+    #[cfg(not(target_os = "windows"))]
     fn hide(&self) -> &'static str {
         if self.is_zh {
             "隐藏"
@@ -279,6 +281,7 @@ impl I18n {
         }
     }
 
+    #[cfg(not(target_os = "windows"))]
     fn hide_others(&self) -> &'static str {
         if self.is_zh {
             "隐藏其他"
@@ -287,6 +290,7 @@ impl I18n {
         }
     }
 
+    #[cfg(not(target_os = "windows"))]
     fn show_all(&self) -> &'static str {
         if self.is_zh {
             "全部显示"
@@ -303,6 +307,7 @@ impl I18n {
         }
     }
 
+    #[cfg(not(target_os = "windows"))]
     fn services(&self) -> &'static str {
         if self.is_zh {
             "服务"
@@ -878,6 +883,327 @@ body {
 </div>
 </body>
 </html>"#;
+
+/// 自定义标题栏注入脚本模板。`__LABELS__` 占位符会被 [`titlebar_script`]
+/// 替换为按系统语言生成的菜单文案 JSON。脚本在每次页面导航时由 WebView
+/// 注入,负责在页面顶部渲染「菜单 + 最小化/最大化/关闭」这一行。
+///
+/// 仅 Windows 使用:该平台把原生标题栏(含三按钮)与菜单栏分成两行,无法
+/// 通过配置合并,因此关闭原生装饰后由前端自绘标题栏;其余平台保留原生
+/// 标题栏与原生菜单,不走此脚本。
+#[cfg(target_os = "windows")]
+const TITLEBAR_SCRIPT_TEMPLATE: &str = r#"(function () {
+  if (window.__DSH_TITLEBAR__) return;
+  window.__DSH_TITLEBAR__ = true;
+
+  // 由 titlebar_script 注入的中英双语菜单文案。
+  var LABELS = __LABELS__;
+  var BAR_HEIGHT = 40;
+  var maxBtnEl = null;
+
+  // 通过 Tauri 内部 IPC 桥调用后端命令(与 withGlobalTauri 无关)。
+  function invoke(cmd, args) {
+    try {
+      return window.__TAURI_INTERNALS__.invoke(cmd, args || {});
+    } catch (e) {
+      return Promise.reject(e);
+    }
+  }
+
+  // 编辑类命令尽量贴近 WebView 原生编辑菜单行为。
+  function exec(cmd) {
+    return function () {
+      try { document.execCommand(cmd); } catch (e) {}
+    };
+  }
+
+  var CSS = [
+    '#__dsh_titlebar__{--tb-bg:#f6f6f8;--tb-fg:#1b1b1f;--tb-hover:rgba(0,0,0,0.06);--tb-border:rgba(0,0,0,0.08);position:fixed;top:0;left:0;right:0;height:' + BAR_HEIGHT + 'px;display:flex;align-items:stretch;z-index:2147483000;background:var(--tb-bg);color:var(--tb-fg);font:13px/1 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;-webkit-user-select:none;user-select:none;}',
+    '@media (prefers-color-scheme:dark){#__dsh_titlebar__{--tb-bg:#1f1f21;--tb-fg:#e9e9ec;--tb-hover:rgba(255,255,255,0.08);--tb-border:rgba(255,255,255,0.10);}}',
+    '#__dsh_titlebar__ .tb-menus{display:flex;align-items:center;gap:2px;padding:0 8px;}',
+    '#__dsh_titlebar__ .tb-menu{position:relative;display:flex;}',
+    // 菜单按钮的悬浮背景尽量贴合文字(仅横向留少量余白),窗口按钮 .tb-wb 保持通高不变。
+    '#__dsh_titlebar__ .tb-btn{display:flex;align-items:center;gap:7px;height:26px;padding:0 4px;border-radius:5px;background:none;border:none;color:inherit;font:inherit;cursor:pointer;}',
+    '#__dsh_titlebar__ .tb-btn:hover,#__dsh_titlebar__ .tb-btn.open{background:var(--tb-hover);}',
+    '#__dsh_titlebar__ .tb-app .tb-btn{font-weight:600;}',
+    '#__dsh_titlebar__ .tb-appicon{width:16px;height:16px;border-radius:3px;display:block;pointer-events:none;}',
+    '#__dsh_titlebar__ .tb-dropdown{position:absolute;top:calc(100% + 2px);left:0;min-width:232px;display:none;background:var(--tb-bg);border:1px solid var(--tb-border);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,0.20);padding:6px;z-index:2147483001;}',
+    '#__dsh_titlebar__ .tb-menu.open .tb-dropdown{display:block;}',
+    '#__dsh_titlebar__ .tb-item{display:block;width:100%;padding:6px 10px;border-radius:4px;background:none;border:none;color:inherit;font:inherit;text-align:left;cursor:pointer;white-space:nowrap;}',
+    '#__dsh_titlebar__ .tb-item:hover{background:var(--tb-hover);}',
+    '#__dsh_titlebar__ .tb-sep{height:1px;margin:5px 8px;background:var(--tb-border);}',
+    '#__dsh_titlebar__ .tb-drag{flex:1;}',
+    '#__dsh_titlebar__ .tb-wins{display:flex;align-items:stretch;height:100%;}',
+    '#__dsh_titlebar__ .tb-wb{display:flex;align-items:center;justify-content:center;width:46px;height:100%;border-radius:0;background:none;border:none;color:inherit;cursor:pointer;}',
+    '#__dsh_titlebar__ .tb-wb:hover{background:var(--tb-hover);}',
+    '#__dsh_titlebar__ .tb-wb.tb-close:hover{background:#e81123;color:#ffffff;}',
+    '#__dsh_titlebar__ svg{display:block;}'
+  ].join('\n');
+
+  // 简洁自绘窗口按钮图标,随 currentColor 适配深浅主题;应用图标使用程序真实图标图片。
+  var ICONS = {
+    app: '__APP_ICON__',
+    min: '<svg width="10" height="10" viewBox="0 0 10 10"><line x1="0" y1="5" x2="10" y2="5" stroke="currentColor" stroke-width="1"/></svg>',
+    max: '<svg width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/></svg>',
+    restore: '<svg width="10" height="10" viewBox="0 0 10 10"><path d="M2.5 2.5 V0.5 H9.5 V7.5 H7.5" fill="none" stroke="currentColor" stroke-width="1"/><rect x="0.5" y="2.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1"/></svg>',
+    close: '<svg width="10" height="10" viewBox="0 0 10 10"><path d="M0.5 0.5 L9.5 9.5 M9.5 0.5 L0.5 9.5" stroke="currentColor" stroke-width="1"/></svg>'
+  };
+
+  function item(label, action) { return { label: label, action: action }; }
+  function separator() { return { separator: true }; }
+
+  function buildMenus() {
+    return [
+      { label: '', icon: ICONS.app, items: [
+        item(LABELS.about, function () { invoke('menu_action', { action: 'about' }); }),
+        item(LABELS.checkUpdates, function () { invoke('menu_action', { action: 'check_updates' }); }),
+        separator(),
+        item(LABELS.quit, function () { invoke('menu_action', { action: 'quit' }); })
+      ] },
+      { label: LABELS.file, items: [
+        item(LABELS.closeWindow, function () { invoke('window_close'); })
+      ] },
+      { label: LABELS.edit, items: [
+        item(LABELS.undo, exec('undo')),
+        item(LABELS.redo, exec('redo')),
+        separator(),
+        item(LABELS.cut, exec('cut')),
+        item(LABELS.copy, exec('copy')),
+        item(LABELS.paste, exec('paste')),
+        separator(),
+        item(LABELS.selectAll, exec('selectAll'))
+      ] },
+      { label: LABELS.view, items: [
+        item(LABELS.fullscreen, function () { invoke('window_toggle_fullscreen'); })
+      ] },
+      { label: LABELS.windowMenu, items: [
+        item(LABELS.minimize, function () { invoke('window_minimize'); }),
+        item(LABELS.zoom, function () { toggleMaximize(); }),
+        separator(),
+        item(LABELS.closeWindow, function () { invoke('window_close'); })
+      ] },
+      { label: LABELS.help, items: [
+        item(LABELS.helpItem, function () { invoke('menu_action', { action: 'help' }); }),
+        item(LABELS.feedback, function () { invoke('menu_action', { action: 'feedback' }); }),
+        item(LABELS.exportLogs, function () { invoke('menu_action', { action: 'export_logs' }); })
+      ] }
+    ];
+  }
+
+  function toggleMaximize() {
+    invoke('window_toggle_maximize').then(function (isMax) {
+      if (maxBtnEl) maxBtnEl.innerHTML = isMax ? ICONS.restore : ICONS.max;
+    });
+  }
+
+  function closeAllMenus(root) {
+    var open = root.querySelectorAll('.tb-menu.open');
+    for (var i = 0; i < open.length; i++) open[i].classList.remove('open');
+  }
+
+  function mount() {
+    if (document.getElementById('__dsh_titlebar__')) return;
+
+    var style = document.createElement('style');
+    style.textContent = CSS;
+    (document.head || document.documentElement).appendChild(style);
+
+    // 标题栏固定悬浮在顶部,内容区向下让出标题栏高度。
+    document.body.style.boxSizing = 'border-box';
+    document.body.style.paddingTop = BAR_HEIGHT + 'px';
+
+    var bar = document.createElement('div');
+    bar.id = '__dsh_titlebar__';
+
+    var menusWrap = document.createElement('div');
+    menusWrap.className = 'tb-menus';
+
+    buildMenus().forEach(function (menu) {
+      var holder = document.createElement('div');
+      holder.className = menu.icon ? 'tb-menu tb-app' : 'tb-menu';
+
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'tb-btn';
+      if (menu.icon) {
+        if (menu.icon.indexOf('data:') === 0) {
+          var img = document.createElement('img');
+          img.className = 'tb-appicon';
+          img.src = menu.icon;
+          img.alt = '';
+          btn.appendChild(img);
+        } else {
+          var tmp = document.createElement('span');
+          tmp.innerHTML = menu.icon;
+          btn.appendChild(tmp);
+        }
+        if (menu.label) {
+          var span = document.createElement('span');
+          span.textContent = menu.label;
+          btn.appendChild(span);
+        }
+      } else {
+        btn.textContent = menu.label;
+      }
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var wasOpen = holder.classList.contains('open');
+        closeAllMenus(bar);
+        if (!wasOpen) holder.classList.add('open');
+      });
+
+      var dd = document.createElement('div');
+      dd.className = 'tb-dropdown';
+      menu.items.forEach(function (mi) {
+        if (mi.separator) {
+          var sep = document.createElement('div');
+          sep.className = 'tb-sep';
+          dd.appendChild(sep);
+          return;
+        }
+        var it = document.createElement('button');
+        it.type = 'button';
+        it.className = 'tb-item';
+        it.textContent = mi.label;
+        it.addEventListener('click', function () {
+          closeAllMenus(bar);
+          mi.action();
+        });
+        dd.appendChild(it);
+      });
+
+      holder.appendChild(btn);
+      holder.appendChild(dd);
+      menusWrap.appendChild(holder);
+    });
+
+    var drag = document.createElement('div');
+    drag.className = 'tb-drag';
+    // 只有鼠标实际移动超过阈值才进入 OS 拖动循环:立即 start_dragging 会
+    // 阻塞 JS 事件,导致空白区域双击切换最大化(全屏)永远不触发。
+    drag.addEventListener('mousedown', function (e) {
+      if (e.button !== 0) return;
+      var startX = e.clientX, startY = e.clientY;
+      function onMove(ev) {
+        if (Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) > 3) {
+          cleanup();
+          invoke('window_start_dragging');
+        }
+      }
+      function onUp() { cleanup(); }
+      function cleanup() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+    drag.addEventListener('dblclick', toggleMaximize);
+
+    var wins = document.createElement('div');
+    wins.className = 'tb-wins';
+
+    function winBtn(icon, extraClass, onClick) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'tb-wb' + (extraClass ? ' ' + extraClass : '');
+      b.innerHTML = icon;
+      b.addEventListener('click', onClick);
+      return b;
+    }
+
+    var minBtn = winBtn(ICONS.min, '', function () { invoke('window_minimize'); });
+    var maxBtn = winBtn(ICONS.max, '', toggleMaximize);
+    maxBtnEl = maxBtn;
+    var closeBtn = winBtn(ICONS.close, 'tb-close', function () { invoke('window_close'); });
+
+    wins.appendChild(minBtn);
+    wins.appendChild(maxBtn);
+    wins.appendChild(closeBtn);
+
+    bar.appendChild(menusWrap);
+    bar.appendChild(drag);
+    bar.appendChild(wins);
+
+    document.body.appendChild(bar);
+
+    document.addEventListener('click', function () { closeAllMenus(bar); });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', mount);
+  } else {
+    mount();
+  }
+})();"#;
+
+/// 生成按系统语言本地化的标题栏注入脚本,把菜单文案 JSON 与程序图标注入模板。
+#[cfg(target_os = "windows")]
+fn titlebar_script(i18n: &I18n) -> String {
+    let labels = serde_json::json!({
+        "about": i18n.about(),
+        "checkUpdates": i18n.check_updates(),
+        "quit": i18n.quit(),
+        "file": i18n.file_menu(),
+        "closeWindow": i18n.close_window(),
+        "edit": i18n.edit_menu(),
+        "undo": i18n.undo(),
+        "redo": i18n.redo(),
+        "cut": i18n.cut(),
+        "copy": i18n.copy(),
+        "paste": i18n.paste(),
+        "selectAll": i18n.select_all(),
+        "view": i18n.view_menu(),
+        "fullscreen": i18n.enter_full_screen(),
+        "windowMenu": i18n.window_menu(),
+        "minimize": i18n.minimize(),
+        "zoom": i18n.zoom(),
+        "help": i18n.help_menu(),
+        "helpItem": i18n.help(),
+        "feedback": i18n.feedback(),
+        "exportLogs": i18n.export_logs(),
+    })
+    .to_string();
+    TITLEBAR_SCRIPT_TEMPLATE
+        .replace("__LABELS__", &labels)
+        .replace("__APP_ICON__", &icon_data_url())
+}
+
+/// 编译期把程序图标(32×32 PNG)打包进二进制,运行时转为 base64 data URL,
+/// 供注入脚本在自绘标题栏中显示真实的应用图标。
+#[cfg(target_os = "windows")]
+fn icon_data_url() -> String {
+    const ICON_PNG: &[u8] = include_bytes!("../icons/32x32.png");
+    format!("data:image/png;base64,{}", base64_encode(ICON_PNG))
+}
+
+/// 标准 base64 编码(无换行),避免为单一的图标编码引入额外依赖。
+#[cfg(target_os = "windows")]
+fn base64_encode(input: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
+    for chunk in input.chunks(3) {
+        let b = [
+            chunk[0],
+            chunk.get(1).copied().unwrap_or(0),
+            chunk.get(2).copied().unwrap_or(0),
+        ];
+        let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | (b[2] as u32);
+        out.push(TABLE[(n >> 18) as usize & 63] as char);
+        out.push(TABLE[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 {
+            TABLE[(n >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            TABLE[n as usize & 63] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
 
 /// Bind a loopback HTTP socket serving `html` and return its URL. The listener
 /// thread lives until the process exits; every request gets the same page so
@@ -1741,8 +2067,200 @@ fn on_menu_event(handle: &tauri::AppHandle, i18n: &I18n, id: &str) {
                 }
             });
         }
+        // 自绘标题栏的「退出」菜单项:结束 dsh 子进程后退出应用。
+        "quit" => {
+            kill_dsh(handle);
+            handle.exit(0);
+        }
         _ => {}
     }
+}
+
+// ---------------------------------------------------------------------------
+// 自定义标题栏的窗口控制命令(仅 Windows 自绘标题栏通过 IPC 调用;其余
+// 平台命令同样注册但不会被触发)。
+// ---------------------------------------------------------------------------
+
+/// 最小化当前窗口。
+#[tauri::command]
+fn window_minimize(window: tauri::WebviewWindow) {
+    let _ = window.minimize();
+}
+
+/// 切换当前窗口最大化/还原,返回切换后是否处于最大化状态。
+#[tauri::command]
+fn window_toggle_maximize(window: tauri::WebviewWindow) -> bool {
+    match window.is_maximized() {
+        Ok(true) => {
+            let _ = window.unmaximize();
+            false
+        }
+        Ok(false) => {
+            let _ = window.maximize();
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// 关闭当前窗口。
+#[tauri::command]
+fn window_close(window: tauri::WebviewWindow) {
+    let _ = window.close();
+}
+
+/// 切换当前窗口全屏,返回切换后是否处于全屏状态。
+#[tauri::command]
+fn window_toggle_fullscreen(window: tauri::WebviewWindow) -> bool {
+    match window.is_fullscreen() {
+        Ok(fullscreen) => {
+            let _ = window.set_fullscreen(!fullscreen);
+            !fullscreen
+        }
+        Err(_) => false,
+    }
+}
+
+/// 从自绘标题栏的空白区发起窗口拖动。
+#[tauri::command]
+fn window_start_dragging(window: tauri::WebviewWindow) {
+    let _ = window.start_dragging();
+}
+
+/// 分发自绘标题栏菜单项到既有的菜单处理逻辑。
+#[tauri::command]
+fn menu_action(app: tauri::AppHandle, action: String) {
+    let i18n = (*app.state::<I18n>()).clone();
+    on_menu_event(&app, &i18n, &action);
+}
+
+/// 构建并设置原生菜单栏。仅非 Windows 平台使用:Windows 改用自绘标题栏
+/// 菜单(见 `TITLEBAR_SCRIPT_TEMPLATE`),因此不设置原生菜单。
+#[cfg(not(target_os = "windows"))]
+fn setup_native_menu(handle: &tauri::AppHandle, i18n: &I18n) {
+    let about_item = MenuItem::with_id(handle, "about", i18n.about(), true, None::<&str>)
+        .expect("failed to build menu item");
+    let check_item = MenuItem::with_id(
+        handle,
+        "check_updates",
+        i18n.check_updates(),
+        true,
+        None::<&str>,
+    )
+    .expect("failed to build menu item");
+    let submenu = Submenu::with_items(
+        handle,
+        "DeepSeek Harness",
+        true,
+        &[
+            &about_item,
+            &check_item,
+            &PredefinedMenuItem::separator(handle).expect("failed to build separator"),
+            &PredefinedMenuItem::services(handle, Some(i18n.services()))
+                .expect("failed to build menu item"),
+            &PredefinedMenuItem::separator(handle).expect("failed to build separator"),
+            &PredefinedMenuItem::hide(handle, Some(i18n.hide()))
+                .expect("failed to build menu item"),
+            &PredefinedMenuItem::hide_others(handle, Some(i18n.hide_others()))
+                .expect("failed to build menu item"),
+            &PredefinedMenuItem::show_all(handle, Some(i18n.show_all()))
+                .expect("failed to build menu item"),
+            &PredefinedMenuItem::separator(handle).expect("failed to build separator"),
+            &PredefinedMenuItem::quit(handle, Some(i18n.quit()))
+                .expect("failed to build menu item"),
+        ],
+    )
+    .expect("failed to build submenu");
+    let help_item = MenuItem::with_id(handle, "help", i18n.help(), true, None::<&str>)
+        .expect("failed to build menu item");
+    let feedback_item = MenuItem::with_id(handle, "feedback", i18n.feedback(), true, None::<&str>)
+        .expect("failed to build menu item");
+    let export_item = MenuItem::with_id(
+        handle,
+        "export_logs",
+        i18n.export_logs(),
+        true,
+        None::<&str>,
+    )
+    .expect("failed to build menu item");
+    let help_submenu = Submenu::with_items(
+        handle,
+        i18n.help_menu(),
+        true,
+        &[&help_item, &feedback_item, &export_item],
+    )
+    .expect("failed to build submenu");
+
+    // 编辑菜单:恢复 macOS Cmd+C/Cmd+V 剪贴板快捷键。
+    let edit_submenu = Submenu::with_items(
+        handle,
+        i18n.edit_menu(),
+        true,
+        &[
+            &PredefinedMenuItem::undo(handle, Some(i18n.undo()))
+                .expect("failed to build menu item"),
+            &PredefinedMenuItem::redo(handle, Some(i18n.redo()))
+                .expect("failed to build menu item"),
+            &PredefinedMenuItem::separator(handle).expect("failed to build separator"),
+            &PredefinedMenuItem::cut(handle, Some(i18n.cut())).expect("failed to build menu item"),
+            &PredefinedMenuItem::copy(handle, Some(i18n.copy()))
+                .expect("failed to build menu item"),
+            &PredefinedMenuItem::paste(handle, Some(i18n.paste()))
+                .expect("failed to build menu item"),
+            &PredefinedMenuItem::separator(handle).expect("failed to build separator"),
+            &PredefinedMenuItem::select_all(handle, Some(i18n.select_all()))
+                .expect("failed to build menu item"),
+        ],
+    )
+    .expect("failed to build submenu");
+    let file_submenu = Submenu::with_items(
+        handle,
+        i18n.file_menu(),
+        true,
+        &[
+            &PredefinedMenuItem::close_window(handle, Some(i18n.close_window()))
+                .expect("failed to build menu item"),
+        ],
+    )
+    .expect("failed to build submenu");
+    let view_submenu = Submenu::with_items(
+        handle,
+        i18n.view_menu(),
+        true,
+        &[
+            &PredefinedMenuItem::fullscreen(handle, Some(i18n.enter_full_screen()))
+                .expect("failed to build menu item"),
+        ],
+    )
+    .expect("failed to build submenu");
+    let window_submenu = Submenu::with_items(
+        handle,
+        i18n.window_menu(),
+        true,
+        &[
+            &PredefinedMenuItem::minimize(handle, Some(i18n.minimize()))
+                .expect("failed to build menu item"),
+            &PredefinedMenuItem::maximize(handle, Some(i18n.zoom()))
+                .expect("failed to build menu item"),
+            &PredefinedMenuItem::separator(handle).expect("failed to build separator"),
+            &PredefinedMenuItem::close_window(handle, Some(i18n.close_window()))
+                .expect("failed to build menu item"),
+        ],
+    )
+    .expect("failed to build submenu");
+    let menu = Menu::with_items(
+        handle,
+        &[
+            &submenu,
+            &file_submenu,
+            &edit_submenu,
+            &view_submenu,
+            &window_submenu,
+            &help_submenu,
+        ],
+    )
+    .expect("failed to build menu");
+    handle.set_menu(menu).expect("failed to set menu");
 }
 
 // ---------------------------------------------------------------------------
@@ -1755,6 +2273,14 @@ fn main() {
         .manage(I18n::detect())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![
+            window_minimize,
+            window_toggle_maximize,
+            window_close,
+            window_toggle_fullscreen,
+            window_start_dragging,
+            menu_action,
+        ])
         .setup(|app| {
             rotate_log_if_needed();
             let handle = app.handle().clone();
@@ -1763,16 +2289,24 @@ fn main() {
             // 立即显示主窗口(加载页),避免等待 dsh 启动期间一片空白。
             // 窗口先渲染 spinner,dsh 就绪后再导航到实际 UI。
             let loading_url = serve_loading_html().expect("failed to serve loading page");
-            let window = tauri::WebviewWindowBuilder::new(
-                &handle,
-                "main",
-                tauri::WebviewUrl::External(loading_url.parse().expect("invalid loading url")),
-            )
-            .title("DeepSeek Harness")
-            .inner_size(1200.0, 800.0)
-            .center()
-            .build()
-            .expect("failed to build main window");
+            let window = {
+                let builder = tauri::WebviewWindowBuilder::new(
+                    &handle,
+                    "main",
+                    tauri::WebviewUrl::External(loading_url.parse().expect("invalid loading url")),
+                )
+                .title("DeepSeek Harness")
+                .inner_size(1200.0, 800.0)
+                .center();
+                // Windows 关闭原生标题栏与菜单栏,改由注入的自绘标题栏呈现
+                // 「菜单 + 最小化/最大化/关闭」一行;shadow 保留 Win11 圆角。
+                #[cfg(target_os = "windows")]
+                let builder = builder
+                    .decorations(false)
+                    .shadow(true)
+                    .initialization_script(titlebar_script(&i18n));
+                builder.build().expect("failed to build main window")
+            };
 
             tauri::async_runtime::spawn(async move {
                 // ── 1. Toolchain (first-launch bootstrap if needed) ──
@@ -1796,133 +2330,9 @@ fn main() {
                     log_line("desktop", &format!("failed to navigate to dsh: {}", e));
                 }
 
-                // ── 4. App menu: about/update + standard macOS items ──
-                let about_item =
-                    MenuItem::with_id(&handle, "about", i18n.about(), true, None::<&str>)
-                        .expect("failed to build menu item");
-                let check_item = MenuItem::with_id(
-                    &handle,
-                    "check_updates",
-                    i18n.check_updates(),
-                    true,
-                    None::<&str>,
-                )
-                .expect("failed to build menu item");
-                let submenu = Submenu::with_items(
-                    &handle,
-                    "DeepSeek Harness",
-                    true,
-                    &[
-                        &about_item,
-                        &check_item,
-                        &PredefinedMenuItem::separator(&handle).expect("failed to build separator"),
-                        &PredefinedMenuItem::services(&handle, Some(i18n.services()))
-                            .expect("failed to build menu item"),
-                        &PredefinedMenuItem::separator(&handle).expect("failed to build separator"),
-                        &PredefinedMenuItem::hide(&handle, Some(i18n.hide()))
-                            .expect("failed to build menu item"),
-                        &PredefinedMenuItem::hide_others(&handle, Some(i18n.hide_others()))
-                            .expect("failed to build menu item"),
-                        &PredefinedMenuItem::show_all(&handle, Some(i18n.show_all()))
-                            .expect("failed to build menu item"),
-                        &PredefinedMenuItem::separator(&handle).expect("failed to build separator"),
-                        &PredefinedMenuItem::quit(&handle, Some(i18n.quit()))
-                            .expect("failed to build menu item"),
-                    ],
-                )
-                .expect("failed to build submenu");
-                let help_item = MenuItem::with_id(&handle, "help", i18n.help(), true, None::<&str>)
-                    .expect("failed to build menu item");
-                let feedback_item =
-                    MenuItem::with_id(&handle, "feedback", i18n.feedback(), true, None::<&str>)
-                        .expect("failed to build menu item");
-                let export_item = MenuItem::with_id(
-                    &handle,
-                    "export_logs",
-                    i18n.export_logs(),
-                    true,
-                    None::<&str>,
-                )
-                .expect("failed to build menu item");
-                let help_submenu = Submenu::with_items(
-                    &handle,
-                    i18n.help_menu(),
-                    true,
-                    &[&help_item, &feedback_item, &export_item],
-                )
-                .expect("failed to build submenu");
-
-                // ── 4.5. Edit menu: restores macOS Cmd+C/Cmd+V clipboard shortcuts ──
-                let edit_submenu = Submenu::with_items(
-                    &handle,
-                    i18n.edit_menu(),
-                    true,
-                    &[
-                        &PredefinedMenuItem::undo(&handle, Some(i18n.undo()))
-                            .expect("failed to build menu item"),
-                        &PredefinedMenuItem::redo(&handle, Some(i18n.redo()))
-                            .expect("failed to build menu item"),
-                        &PredefinedMenuItem::separator(&handle).expect("failed to build separator"),
-                        &PredefinedMenuItem::cut(&handle, Some(i18n.cut()))
-                            .expect("failed to build menu item"),
-                        &PredefinedMenuItem::copy(&handle, Some(i18n.copy()))
-                            .expect("failed to build menu item"),
-                        &PredefinedMenuItem::paste(&handle, Some(i18n.paste()))
-                            .expect("failed to build menu item"),
-                        &PredefinedMenuItem::separator(&handle).expect("failed to build separator"),
-                        &PredefinedMenuItem::select_all(&handle, Some(i18n.select_all()))
-                            .expect("failed to build menu item"),
-                    ],
-                )
-                .expect("failed to build submenu");
-                let file_submenu = Submenu::with_items(
-                    &handle,
-                    i18n.file_menu(),
-                    true,
-                    &[
-                        &PredefinedMenuItem::close_window(&handle, Some(i18n.close_window()))
-                            .expect("failed to build menu item"),
-                    ],
-                )
-                .expect("failed to build submenu");
-                let view_submenu = Submenu::with_items(
-                    &handle,
-                    i18n.view_menu(),
-                    true,
-                    &[
-                        &PredefinedMenuItem::fullscreen(&handle, Some(i18n.enter_full_screen()))
-                            .expect("failed to build menu item"),
-                    ],
-                )
-                .expect("failed to build submenu");
-                let window_submenu = Submenu::with_items(
-                    &handle,
-                    i18n.window_menu(),
-                    true,
-                    &[
-                        &PredefinedMenuItem::minimize(&handle, Some(i18n.minimize()))
-                            .expect("failed to build menu item"),
-                        &PredefinedMenuItem::maximize(&handle, Some(i18n.zoom()))
-                            .expect("failed to build menu item"),
-                        &PredefinedMenuItem::separator(&handle).expect("failed to build separator"),
-                        &PredefinedMenuItem::close_window(&handle, Some(i18n.close_window()))
-                            .expect("failed to build menu item"),
-                    ],
-                )
-                .expect("failed to build submenu");
-                let menu = Menu::with_items(
-                    &handle,
-                    &[
-                        &submenu,
-                        &file_submenu,
-                        &edit_submenu,
-                        &view_submenu,
-                        &window_submenu,
-                        &help_submenu,
-                    ],
-                )
-                .expect("failed to build menu");
-                handle.set_menu(menu).expect("failed to set menu");
+                // ── 4. Native menu(非 Windows);Windows 用自绘标题栏菜单 ──
+                #[cfg(not(target_os = "windows"))]
+                setup_native_menu(&handle, &i18n);
 
                 // ── 5. Auto-check for updates shortly after startup ─
                 let handle2 = handle.clone();
@@ -2218,16 +2628,8 @@ mod tests {
     fn i18n_standard_menu_items_zh_and_en() {
         let zh = I18n { is_zh: true };
         let en = I18n { is_zh: false };
-        assert_eq!(zh.hide(), "隐藏");
-        assert_eq!(en.hide(), "Hide");
-        assert_eq!(zh.hide_others(), "隐藏其他");
-        assert_eq!(en.hide_others(), "Hide Others");
-        assert_eq!(zh.show_all(), "全部显示");
-        assert_eq!(en.show_all(), "Show All");
         assert_eq!(zh.quit(), "退出");
         assert_eq!(en.quit(), "Quit");
-        assert_eq!(zh.services(), "服务");
-        assert_eq!(en.services(), "Services");
         assert_eq!(zh.file_menu(), "文件");
         assert_eq!(en.file_menu(), "File");
         assert_eq!(zh.view_menu(), "显示");
@@ -2242,6 +2644,21 @@ mod tests {
         assert_eq!(en.zoom(), "Zoom");
         assert_eq!(zh.close_window(), "关闭窗口");
         assert_eq!(en.close_window(), "Close Window");
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn i18n_macos_menu_items_zh_and_en() {
+        let zh = I18n { is_zh: true };
+        let en = I18n { is_zh: false };
+        assert_eq!(zh.hide(), "隐藏");
+        assert_eq!(en.hide(), "Hide");
+        assert_eq!(zh.hide_others(), "隐藏其他");
+        assert_eq!(en.hide_others(), "Hide Others");
+        assert_eq!(zh.show_all(), "全部显示");
+        assert_eq!(en.show_all(), "Show All");
+        assert_eq!(zh.services(), "服务");
+        assert_eq!(en.services(), "Services");
     }
 
     #[test]
@@ -2405,6 +2822,46 @@ mod tests {
         assert!(LOADING_HTML.contains("spinner"));
         assert!(LOADING_HTML.contains("conic-gradient"));
         assert!(LOADING_HTML.contains("72deg"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn titlebar_script_zh_contains_localized_menu_labels() {
+        let script = titlebar_script(&I18n { is_zh: true });
+        assert!(script.contains("\"file\":\"文件\""));
+        assert!(script.contains("\"about\":\"关于 DeepSeek Harness\""));
+        assert!(script.contains("\"minimize\":\"最小化\""));
+        assert!(script.contains("\"exportLogs\":\"导出日志\""));
+        // 窗口控制命令名必须与后端 command 函数名一致。
+        assert!(script.contains("window_minimize"));
+        assert!(script.contains("window_toggle_maximize"));
+        assert!(script.contains("window_close"));
+        assert!(script.contains("window_start_dragging"));
+        // 应用图标已替换为程序图标的 data URL。
+        assert!(script.contains("data:image/png;base64,"));
+        assert!(!script.contains("__APP_ICON__"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn titlebar_script_en_contains_localized_menu_labels() {
+        let script = titlebar_script(&I18n { is_zh: false });
+        assert!(script.contains("\"file\":\"File\""));
+        assert!(script.contains("\"about\":\"About DeepSeek Harness\""));
+        assert!(script.contains("\"minimize\":\"Minimize\""));
+        assert!(script.contains("\"exportLogs\":\"Export Logs\""));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn base64_encode_matches_known_vectors() {
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(base64_encode(b"foob"), "Zm9vYg==");
+        assert_eq!(base64_encode(b"fooba"), "Zm9vYmE=");
+        assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
     }
 
     #[test]
