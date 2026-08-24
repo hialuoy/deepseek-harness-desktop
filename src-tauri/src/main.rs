@@ -861,7 +861,7 @@ body {
   position: absolute;
   inset: -2px;
   border-radius: inherit;
-  background: conic-gradient(var(--boot-brand) var(--boot-arc, 180deg), transparent 0);
+  background: conic-gradient(var(--boot-brand) var(--boot-arc, 72deg), transparent 0);
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0);
   mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0);
 }
@@ -871,24 +871,13 @@ body {
 <body>
 <div class="boot">
   <div class="card">
-    <div class="wordmark">DeepSeek Harness</div>
+    <div class="wordmark">HARNESS</div>
     <div class="spinner"></div>
-    <div class="hint">__STATUS__</div>
+    <div class="hint">Starting…</div>
   </div>
 </div>
 </body>
 </html>"#;
-
-/// Localized startup-loading page, styled after dsh's own boot page: a brand
-/// wordmark over a rotating progress-arc spinner and a one-line status hint.
-fn loading_html(is_zh: bool) -> String {
-    let status = if is_zh {
-        "正在启动…"
-    } else {
-        "Starting…"
-    };
-    LOADING_HTML.replace("__STATUS__", status)
-}
 
 /// Bind a loopback HTTP socket serving `html` and return its URL. The listener
 /// thread lives until the process exits; every request gets the same page so
@@ -927,9 +916,9 @@ fn serve_bootstrap_html() -> Result<String, String> {
     serve_html(BOOTSTRAP_HTML.to_string())
 }
 
-/// Serve the localized startup loading page over a loopback HTTP socket.
-fn serve_loading_html(is_zh: bool) -> Result<String, String> {
-    serve_html(loading_html(is_zh))
+/// Serve the startup loading page over a loopback HTTP socket.
+fn serve_loading_html() -> Result<String, String> {
+    serve_html(LOADING_HTML.to_string())
 }
 
 /// Executable candidate names for a program: bare name on Unix; `.exe`/`.cmd`
@@ -1773,7 +1762,7 @@ fn main() {
 
             // 立即显示主窗口(加载页),避免等待 dsh 启动期间一片空白。
             // 窗口先渲染 spinner,dsh 就绪后再导航到实际 UI。
-            let loading_url = serve_loading_html(i18n.is_zh).expect("failed to serve loading page");
+            let loading_url = serve_loading_html().expect("failed to serve loading page");
             let window = tauri::WebviewWindowBuilder::new(
                 &handle,
                 "main",
@@ -1781,6 +1770,7 @@ fn main() {
             )
             .title("DeepSeek Harness")
             .inner_size(1200.0, 800.0)
+            .center()
             .build()
             .expect("failed to build main window");
 
@@ -1800,6 +1790,8 @@ fn main() {
                 *handle.state::<DshProcess>().0.lock().unwrap() = Some(child);
 
                 // ── 3. 把已在 setup 中显示的加载页窗口导航到 dsh URL ──
+                // dsh 就绪后多停 1 秒,让加载页动画完整展示,也给 dsh 页面留出首次渲染缓冲。
+                std::thread::sleep(Duration::from_secs(1));
                 if let Err(e) = window.navigate(url.parse().expect("invalid dsh url")) {
                     log_line("desktop", &format!("failed to navigate to dsh: {}", e));
                 }
@@ -2406,16 +2398,13 @@ mod tests {
     }
 
     #[test]
-    fn loading_html_is_localized_zh_and_en() {
-        let zh = loading_html(true);
-        let en = loading_html(false);
-        assert!(zh.contains("正在启动"));
-        assert!(en.contains("Starting"));
-        assert!(zh.contains("DeepSeek Harness"));
-        assert!(zh.contains("wordmark"));
-        assert!(!zh.contains("__STATUS__"));
-        assert!(!en.contains("__STATUS__"));
-        assert!(zh.contains("spinner"));
+    fn loading_html_matches_dsh_boot_page() {
+        assert!(LOADING_HTML.contains("HARNESS"));
+        assert!(LOADING_HTML.contains("Starting…"));
+        assert!(LOADING_HTML.contains("wordmark"));
+        assert!(LOADING_HTML.contains("spinner"));
+        assert!(LOADING_HTML.contains("conic-gradient"));
+        assert!(LOADING_HTML.contains("72deg"));
     }
 
     #[test]
