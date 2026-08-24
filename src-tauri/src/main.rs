@@ -811,19 +811,98 @@ window.__dsbUpdate = function(state, percent) {
 </body>
 </html>"#;
 
-/// Bind a loopback HTTP socket serving BOOTSTRAP_HTML and return its URL.
-/// The listener thread lives until the process exits; every request gets the
-/// same page so reloads and retries keep working.
-fn serve_bootstrap_html() -> Result<String, String> {
+/// Full HTML page for the startup loading window, shown immediately while dsh
+/// boots in the background. The `__STATUS__` placeholder is replaced with
+/// localized copy by `loading_html`.
+const LOADING_HTML: &str = r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>DeepSeek Harness</title>
+<style>
+:root {
+  --boot-bg: #fff;
+  --boot-label-primary: #0f1115;
+  --boot-label-tertiary: #81858c;
+  --boot-border: rgb(0 0 0 / 10%);
+  --boot-brand: #0f1115;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --boot-bg: #151517;
+    --boot-label-primary: #f9fafb;
+    --boot-label-tertiary: #adb2b8;
+    --boot-border: rgb(255 255 255 / 12%);
+    --boot-brand: #f9fafb;
+  }
+}
+html, body { height: 100%; margin: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--boot-label-primary);
+  background: var(--boot-bg);
+}
+.boot { height: 100%; display: grid; place-items: center; }
+.card { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.wordmark { font-size: 16px; line-height: 24px; font-weight: 600; letter-spacing: 0.08em; color: var(--boot-label-primary); }
+.hint { font-size: 12px; line-height: 18px; color: var(--boot-label-tertiary); }
+.spinner {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--boot-border);
+  animation: spin 0.8s linear infinite;
+}
+.spinner::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: conic-gradient(var(--boot-brand) var(--boot-arc, 180deg), transparent 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 0);
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="boot">
+  <div class="card">
+    <div class="wordmark">DeepSeek Harness</div>
+    <div class="spinner"></div>
+    <div class="hint">__STATUS__</div>
+  </div>
+</div>
+</body>
+</html>"#;
+
+/// Localized startup-loading page, styled after dsh's own boot page: a brand
+/// wordmark over a rotating progress-arc spinner and a one-line status hint.
+fn loading_html(is_zh: bool) -> String {
+    let status = if is_zh {
+        "正在启动…"
+    } else {
+        "Starting…"
+    };
+    LOADING_HTML.replace("__STATUS__", status)
+}
+
+/// Bind a loopback HTTP socket serving `html` and return its URL. The listener
+/// thread lives until the process exits; every request gets the same page so
+/// reloads and retries keep working.
+fn serve_html(html: String) -> Result<String, String> {
     use std::io::{Read, Write};
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0")
-        .map_err(|e| format!("failed to bind bootstrap server: {}", e))?;
+        .map_err(|e| format!("failed to bind local server: {}", e))?;
     let url = format!(
         "http://{}/",
         listener
             .local_addr()
-            .map_err(|e| format!("bootstrap server addr: {}", e))?
+            .map_err(|e| format!("local server addr: {}", e))?
     );
     std::thread::spawn(move || {
         for stream in listener.incoming() {
@@ -831,7 +910,7 @@ fn serve_bootstrap_html() -> Result<String, String> {
             let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
             let mut buf = [0u8; 1024];
             let _ = stream.read(&mut buf);
-            let body = BOOTSTRAP_HTML.as_bytes();
+            let body = html.as_bytes();
             let resp = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                 body.len()
@@ -841,6 +920,16 @@ fn serve_bootstrap_html() -> Result<String, String> {
         }
     });
     Ok(url)
+}
+
+/// Serve the bootstrap progress page over a loopback HTTP socket.
+fn serve_bootstrap_html() -> Result<String, String> {
+    serve_html(BOOTSTRAP_HTML.to_string())
+}
+
+/// Serve the localized startup loading page over a loopback HTTP socket.
+fn serve_loading_html(is_zh: bool) -> Result<String, String> {
+    serve_html(loading_html(is_zh))
 }
 
 /// Executable candidate names for a program: bare name on Unix; `.exe`/`.cmd`
@@ -1423,11 +1512,12 @@ fn append_log_line(path: &Path, line: &str) -> std::io::Result<()> {
     writeln!(f, "{}", line)
 }
 
-/// Write a `[prefix] msg` line to stdout and append it to the desktop log.
-/// File failures are silently ignored — logging must never break the app.
+/// Write a `[timestamp] [prefix] msg` line to stdout and append it to the
+/// desktop log. File failures are silently ignored — logging must never break
+/// the app.
 fn log_line(prefix: &str, msg: &str) {
     use std::io::Write;
-    let line = format!("[{}] {}", prefix, msg);
+    let line = format!("[{}] [{}] {}", now_timestamp(), prefix, msg);
     let _ = writeln!(std::io::stdout(), "{}", line);
     let _ = append_log_line(&log_path(), &line);
 }
@@ -1459,6 +1549,31 @@ fn timestamp_compact(secs: i64) -> String {
         y += 1;
     }
     format!("{:04}{:02}{:02}-{:02}{:02}{:02}", y, m, d, hh, mm, ss)
+}
+
+/// Format a log timestamp as `YYYY-MM-DD HH:MM:SS.mmm` (UTC) from a UNIX
+/// second count plus a millisecond sub-second. Extracted from
+/// `timestamp_compact` so the format is a pure, testable function.
+fn format_timestamp(secs: i64, millis: u32) -> String {
+    let base = timestamp_compact(secs); // YYYYMMDD-HHMMSS
+    format!(
+        "{}-{}-{} {}:{}:{}.{:03}",
+        &base[..4],
+        &base[4..6],
+        &base[6..8],
+        &base[9..11],
+        &base[11..13],
+        &base[13..15],
+        millis
+    )
+}
+
+/// Current wall-clock time as a millisecond-precision log timestamp (UTC).
+fn now_timestamp() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    format_timestamp(now.as_secs() as i64, now.subsec_millis())
 }
 
 /// Default filename for an exported log bundle.
@@ -1655,6 +1770,20 @@ fn main() {
             rotate_log_if_needed();
             let handle = app.handle().clone();
             let i18n = (*app.state::<I18n>()).clone();
+
+            // 立即显示主窗口(加载页),避免等待 dsh 启动期间一片空白。
+            // 窗口先渲染 spinner,dsh 就绪后再导航到实际 UI。
+            let loading_url = serve_loading_html(i18n.is_zh).expect("failed to serve loading page");
+            let window = tauri::WebviewWindowBuilder::new(
+                &handle,
+                "main",
+                tauri::WebviewUrl::External(loading_url.parse().expect("invalid loading url")),
+            )
+            .title("DeepSeek Harness")
+            .inner_size(1200.0, 800.0)
+            .build()
+            .expect("failed to build main window");
+
             tauri::async_runtime::spawn(async move {
                 // ── 1. Toolchain (first-launch bootstrap if needed) ──
                 if let Err(e) = ensure_toolchain(&handle, &i18n).await {
@@ -1670,16 +1799,10 @@ fn main() {
                 };
                 *handle.state::<DshProcess>().0.lock().unwrap() = Some(child);
 
-                // ── 3. Create the window, loading the dsh URL ───────
-                let _window = tauri::WebviewWindowBuilder::new(
-                    &handle,
-                    "main",
-                    tauri::WebviewUrl::External(url.parse().expect("invalid URL")),
-                )
-                .title("DeepSeek Harness")
-                .inner_size(1200.0, 800.0)
-                .build()
-                .expect("failed to build main window");
+                // ── 3. 把已在 setup 中显示的加载页窗口导航到 dsh URL ──
+                if let Err(e) = window.navigate(url.parse().expect("invalid dsh url")) {
+                    log_line("desktop", &format!("failed to navigate to dsh: {}", e));
+                }
 
                 // ── 4. App menu: about/update + standard macOS items ──
                 let about_item =
@@ -2011,12 +2134,15 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         let prefix = root.join("node-v22.23.1");
         std::fs::create_dir_all(prefix.join("bin")).unwrap();
-        std::fs::write(prefix.join("bin").join("npm"), b"").unwrap();
+        std::fs::write(prefix.join("bin").join(npm_shim_name()), b"").unwrap();
         std::fs::write(prefix.join("bin").join("dsh"), b"").unwrap();
 
         let dsh = prefix.join("bin").join("dsh");
         let plan = npm_upgrade_plan_for_shim(&dsh).expect("npm beside dsh");
-        assert_eq!(plan.cmd, prefix.join("bin").join("npm").to_string_lossy());
+        assert_eq!(
+            plan.cmd,
+            prefix.join("bin").join(npm_shim_name()).to_string_lossy()
+        );
         assert_eq!(
             plan.args,
             vec![
@@ -2220,6 +2346,19 @@ mod tests {
     }
 
     #[test]
+    fn format_timestamp_known_epochs_utc() {
+        assert_eq!(format_timestamp(0, 0), "1970-01-01 00:00:00.000");
+        assert_eq!(
+            format_timestamp(946_684_800, 123),
+            "2000-01-01 00:00:00.123"
+        );
+        assert_eq!(
+            format_timestamp(951_868_800 + 36_000, 7),
+            "2000-03-01 10:00:00.007"
+        );
+    }
+
+    #[test]
     fn export_filename_format() {
         assert_eq!(
             export_filename(951_868_800),
@@ -2264,6 +2403,19 @@ mod tests {
         assert_eq!(i18n.bootstrap_failed_title(), "初始化失败");
         assert!(i18n.bootstrap_failed_msg("boom").contains("重试"));
         assert!(i18n.bootstrap_slow_msg().contains("耐心等待"));
+    }
+
+    #[test]
+    fn loading_html_is_localized_zh_and_en() {
+        let zh = loading_html(true);
+        let en = loading_html(false);
+        assert!(zh.contains("正在启动"));
+        assert!(en.contains("Starting"));
+        assert!(zh.contains("DeepSeek Harness"));
+        assert!(zh.contains("wordmark"));
+        assert!(!zh.contains("__STATUS__"));
+        assert!(!en.contains("__STATUS__"));
+        assert!(zh.contains("spinner"));
     }
 
     #[test]
