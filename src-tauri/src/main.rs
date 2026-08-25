@@ -890,8 +890,9 @@ body {
 ///
 /// 仅 Windows 使用:该平台把原生标题栏(含三按钮)与菜单栏分成两行,无法
 /// 通过配置合并,因此关闭原生装饰后由前端自绘标题栏;其余平台保留原生
-/// 标题栏与原生菜单,不走此脚本。
-#[cfg(target_os = "windows")]
+/// 标题栏与原生菜单,不走此脚本。测试构建(`cfg(test)`)在所有平台编译,
+/// 以便注入脚本的文案/图标替换逻辑在 macOS/Linux 的 `cargo test` 中同样被覆盖。
+#[cfg(any(target_os = "windows", test))]
 const TITLEBAR_SCRIPT_TEMPLATE: &str = r#"(function () {
   if (window.__DSH_TITLEBAR__) return;
   window.__DSH_TITLEBAR__ = true;
@@ -1138,7 +1139,7 @@ const TITLEBAR_SCRIPT_TEMPLATE: &str = r#"(function () {
 })();"#;
 
 /// 生成按系统语言本地化的标题栏注入脚本,把菜单文案 JSON 与程序图标注入模板。
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", test))]
 fn titlebar_script(i18n: &I18n) -> String {
     let labels = serde_json::json!({
         "about": i18n.about(),
@@ -1171,14 +1172,14 @@ fn titlebar_script(i18n: &I18n) -> String {
 
 /// 编译期把程序图标(32×32 PNG)打包进二进制,运行时转为 base64 data URL,
 /// 供注入脚本在自绘标题栏中显示真实的应用图标。
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", test))]
 fn icon_data_url() -> String {
     const ICON_PNG: &[u8] = include_bytes!("../icons/32x32.png");
     format!("data:image/png;base64,{}", base64_encode(ICON_PNG))
 }
 
 /// 标准 base64 编码(无换行),避免为单一的图标编码引入额外依赖。
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "windows", test))]
 fn base64_encode(input: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
@@ -2824,7 +2825,6 @@ mod tests {
         assert!(LOADING_HTML.contains("72deg"));
     }
 
-    #[cfg(target_os = "windows")]
     #[test]
     fn titlebar_script_zh_contains_localized_menu_labels() {
         let script = titlebar_script(&I18n { is_zh: true });
@@ -2842,7 +2842,6 @@ mod tests {
         assert!(!script.contains("__APP_ICON__"));
     }
 
-    #[cfg(target_os = "windows")]
     #[test]
     fn titlebar_script_en_contains_localized_menu_labels() {
         let script = titlebar_script(&I18n { is_zh: false });
@@ -2852,7 +2851,6 @@ mod tests {
         assert!(script.contains("\"exportLogs\":\"Export Logs\""));
     }
 
-    #[cfg(target_os = "windows")]
     #[test]
     fn base64_encode_matches_known_vectors() {
         assert_eq!(base64_encode(b""), "");
